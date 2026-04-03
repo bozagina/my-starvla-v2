@@ -3,18 +3,22 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PROMPT_DOC="$ROOT/docs/algorithm1/handoff/new_chat_bootstrap_command.md"
+LEGACY_PROMPT_DOC="$ROOT/docs/algorithm1/handoff/new_chat_bootstrap_command.md"
 RETROFIT_PROMPT_DOC="$ROOT/docs/starvla_retrofit/handoff/new_chat_bootstrap_compact.md"
+PROMPT_DOC="$RETROFIT_PROMPT_DOC"
 PROGRESS_TOOL="$ROOT/tools/handoff/new_progress_entry.py"
 
 usage() {
   cat <<'EOF'
 Usage:
   bootstrap_session.sh prompt
-      Print the copy-paste startup instruction for a new chat.
+      Print the default startup instruction (retrofit compact flow).
 
   bootstrap_session.sh prompt-retrofit
       Print the compact retrofit startup instruction for a new chat.
+
+  bootstrap_session.sh prompt-legacy
+      Print the legacy algorithm1 startup instruction.
 
   bootstrap_session.sh start --module <MASK|FBLOSS|CFG|DIAG|DATA|INFRA|EVAL> [--owner <TAG>] [--title <TEXT>]
       Create a standardized IN_PROGRESS progress entry (EXP_ID) for this session.
@@ -77,6 +81,9 @@ case "$cmd" in
     ;;
   prompt-retrofit)
     print_prompt "$RETROFIT_PROMPT_DOC"
+    ;;
+  prompt-legacy)
+    print_prompt "$LEGACY_PROMPT_DOC"
     ;;
   start)
     start_session "$@"

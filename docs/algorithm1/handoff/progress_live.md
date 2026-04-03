@@ -2874,3 +2874,62 @@ Copy this block for each new entry:
   - Optionally push remote branch to origin, then continue P1 code-level de-hardcoding for Qwen-only trainer path.
 - Commit message:
   - `[ALG1-INFRA-20260403-006-OC] record workspace stabilization and baseline commit snapshots`
+
+## [2026-04-03 23:05:57 +08:00] ALG1-INFRA-20260403-007-OC align bootstrap prompt default to retrofit
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - ...
+- Changes:
+  - Files:
+    - `...`
+  - Code/Config summary:
+    - ...
+- Evidence:
+  - Commands:
+    - `...`
+  - Key outputs/metrics:
+    - ...
+- Decision:
+  - ...
+- Risks/Notes:
+  - ...
+- Next step:
+  - ...
+- Commit message:
+  - `[ALG1-INFRA-20260403-007-OC] align bootstrap prompt default to retrofit`
+
+## [2026-04-03 23:07:05 +08:00] ALG1-INFRA-20260403-007-OC Align bootstrap prompt default to retrofit
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Make `bootstrap_session.sh prompt` default to retrofit compact startup flow while preserving legacy startup access.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Switched default `PROMPT_DOC` to retrofit compact doc.
+    - Added `prompt-legacy` subcommand and usage description.
+    - Kept `prompt-retrofit` unchanged for explicit call compatibility.
+- Evidence:
+  - Commands:
+    - `bash -n /Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh`
+    - `/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh prompt`
+    - `/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh prompt-retrofit`
+    - `/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh prompt-legacy`
+  - Key outputs/metrics:
+    - `SCRIPT_SYNTAX_OK`.
+    - `prompt` now prints retrofit compact startup content.
+    - `prompt-retrofit` remains valid.
+    - `prompt-legacy` correctly prints old algorithm1 startup block.
+- Decision:
+  - Default startup entry now aligns with current Qwen-only retrofit workflow; legacy path remains available when needed.
+- Risks/Notes:
+  - None blocking; this is a compatibility-preserving CLI behavior refinement.
+- Next step:
+  - Continue P1 development work using `bootstrap_session.sh prompt` as default entry command.
+- Commit message:
+  - `[ALG1-INFRA-20260403-007-OC] set bootstrap default prompt to retrofit and add prompt-legacy`
