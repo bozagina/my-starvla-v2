@@ -2841,3 +2841,36 @@ Copy this block for each new entry:
   - Enter P1 minimal code adaptation to de-hardcode legacy `cfg.framework.mapanything_llava3d.*` access in trainer/model builders while keeping backward compatibility.
 - Commit message:
   - `[ALG1-INFRA-20260403-006-OC] enforce qwen-only prompts docs and remote defaults`
+
+## [2026-04-03 17:45:53 +08:00] ALG1-INFRA-20260403-006-OC Workspace stabilization after successful remote baseline training
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - After successful remote training verification, clear large unstaged workspace state and solidify current runnable baseline for subsequent development.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/**` (staged+committed pending docs/tools/scripts snapshot)
+    - Remote: `/2025233147/zzq_0317/starVLA/**` (staged+committed baseline hygiene snapshot)
+  - Code/Config summary:
+    - Local repo committed all pending retrofit docs/tooling + remote-default script changes into a single traceable snapshot.
+    - Remote repo committed current runnable Qwen baseline changes, tracked `starvla_train_pi.yaml` and flash-attn install note, and ignored local wheel artifact via `.gitignore`.
+- Evidence:
+  - Commands:
+    - `git -C /Users/bazinga/code/my-starvla-v2 status --short --branch`
+    - `git -C /Users/bazinga/code/my-starvla-v2 log --oneline -n 2`
+    - `ssh myserver 'git -C /2025233147/zzq_0317/starVLA status --short --branch'`
+    - `ssh myserver 'git -C /2025233147/zzq_0317/starVLA log --oneline -n 2'`
+  - Key outputs/metrics:
+    - Local workspace clean on `codex/tmp-20260402-p0-audit-infra`.
+    - Local commit: `8673c85 [ALG1-INFRA-20260403-006-OC] bootstrap retrofit docs tooling and qwen-only remote defaults`.
+    - Remote commit: `3b698ed [BASELINE-QWEN-20260403] consolidate runnable qwen baseline and workspace hygiene`.
+    - Remote branch state: `starVLA...origin/starVLA [ahead 1]`.
+- Decision:
+  - Current codebase is now in a controlled and traceable state; suitable to serve as development baseline.
+- Risks/Notes:
+  - Remote baseline commit is currently local to server branch (`ahead 1`), not yet pushed upstream.
+- Next step:
+  - Optionally push remote branch to origin, then continue P1 code-level de-hardcoding for Qwen-only trainer path.
+- Commit message:
+  - `[ALG1-INFRA-20260403-006-OC] record workspace stabilization and baseline commit snapshots`
