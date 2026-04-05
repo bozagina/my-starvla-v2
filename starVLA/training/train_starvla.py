@@ -53,6 +53,78 @@ from accelerate.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _resolve_base_vlm_path(cfg):
+    """Resolve base VLM path with Qwen-first preference while keeping legacy fallback."""
+    fw = getattr(cfg, "framework", None)
+    if fw is None:
+        return None, None
+
+    qwen_cfg = getattr(fw, "qwenvl", None)
+    qwen_base = getattr(qwen_cfg, "base_vlm", None) if qwen_cfg is not None else None
+    if qwen_base:
+        return qwen_base, "framework.qwenvl.base_vlm"
+
+    legacy_cfg = getattr(fw, "mapanything_llava3d", None)
+    legacy_base = getattr(legacy_cfg, "base_vlm", None) if legacy_cfg is not None else None
+    if legacy_base:
+        return legacy_base, "framework.mapanything_llava3d.base_vlm"
+
+    return None, None
+
+
+def _resolve_vlm_interface(model):
+    """Resolve runtime VLM interface attr on framework model (Qwen first, legacy fallback)."""
+    for attr_name in ("qwen_vl_interface", "mapanythingllava3d_vlm_interface"):
+        interface = getattr(model, attr_name, None)
+        if interface is not None:
+            return interface, attr_name
+    return None, None
+
+
+def _cfg_get(cfg_obj, key: str, default=None):
+    if cfg_obj is None:
+        return default
+    if hasattr(cfg_obj, "get"):
+        try:
+            return cfg_obj.get(key, default)
+        except Exception:
+            pass
+    return getattr(cfg_obj, key, default)
+
+
+def _cfg_enabled(cfg_obj, key: str, default: bool = False) -> bool:
+    value = _cfg_get(cfg_obj, key, default)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
+
+
+def _to_int_or_none(value):
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _shape_2d(value):
+    if value is None:
+        return None
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        return None
+    try:
+        dims = [int(x) for x in list(shape)]
+    except Exception:
+        return None
+    if len(dims) != 2:
+        return None
+    if dims[0] <= 0 or dims[1] <= 0:
+        return None
+    return dims
+
+
 def build_accelerator(cfg) -> Accelerator:
     """Build accelerator with explicit gradient accumulation from config."""
     grad_accum_steps = int(getattr(cfg.trainer, "gradient_accumulation_steps", 1))
@@ -113,7 +185,14 @@ def setup_directories(cfg) -> Path:
 
 def build_model(cfg) -> torch.nn.Module:
     """build model framework"""
-    logger.info(f"Loading Base VLM `{cfg.framework.mapanything_llava3d.base_vlm}` from ID/Path")
+    base_vlm, src_path = _resolve_base_vlm_path(cfg)
+    if base_vlm:
+        logger.info(f"Loading Base VLM `{base_vlm}` from {src_path}")
+    else:
+        logger.warning(
+            "Unable to resolve base VLM path from config; expected `framework.qwenvl.base_vlm` "
+            "or legacy `framework.mapanything_llava3d.base_vlm`."
+        )
     model = build_framework(cfg)
 
     return model
@@ -597,7 +676,7 @@ class VLATrainer(TrainerUtils):
             action_decoder = getattr(action_model, "action_decoder", None)
             if action_decoder is not None:
                 modules.append(action_decoder)
-        vlm_interface = getattr(base_model, "mapanythingllava3d_vlm_interface", None)
+        vlm_interface, _ = _resolve_vlm_interface(base_model)
         vlm_model = getattr(vlm_interface, "model", None) if vlm_interface is not None else None
         if vlm_model is not None:
             for name in [
@@ -774,7 +853,7 @@ class VLATrainer(TrainerUtils):
             dit = getattr(action_model, "model", None) if action_model is not None else None
             action_decoder = getattr(action_model, "action_decoder", None) if action_model is not None else None
 
-            vlm_interface = getattr(base_model, "mapanythingllava3d_vlm_interface", None)
+            vlm_interface, _ = _resolve_vlm_interface(base_model)
             vlm_model = getattr(vlm_interface, "model", None) if vlm_interface is not None else None
             vlm_language = getattr(vlm_model, "language_model", None) if vlm_model is not None else vlm_model
 
@@ -883,9 +962,128 @@ class VLATrainer(TrainerUtils):
             except Exception:
                 pass
 
+    def _check_shared_builder_contract(self, batch_vla, step_metrics: dict):
+        """Optional contract assertions for shared builder samples. Default disabled."""
+        contract_cfg = _cfg_get(getattr(self.config, "trainer", None), "shared_builder_contract_check", None)
+        enabled = _cfg_enabled(contract_cfg, "enabled", default=False)
+        if not enabled:
+            return
+
+        mode = str(_cfg_get(contract_cfg, "mode", "auto")).strip().lower()
+        if mode not in {"auto", "shared", "legacy"}:
+            raise ValueError(
+                f"Invalid trainer.shared_builder_contract_check.mode={mode!r}; "
+                "expected one of: auto/shared/legacy."
+            )
+        expected_schema_version = str(
+            _cfg_get(contract_cfg, "expected_schema_version", "p1_shared_builder_v1")
+        )
+        expected_action_chunk_len = _to_int_or_none(
+            _cfg_get(contract_cfg, "expected_action_chunk_len", None)
+        )
+        expected_action_dim = _to_int_or_none(_cfg_get(contract_cfg, "expected_action_dim", None))
+        require_state = _cfg_enabled(contract_cfg, "require_state", default=False)
+        strict_legacy_no_extra = _cfg_enabled(
+            contract_cfg, "strict_legacy_no_extra", default=True
+        )
+
+        if not isinstance(batch_vla, list) or len(batch_vla) == 0:
+            raise ValueError("shared builder contract check expects non-empty list batch.")
+        sample = batch_vla[0]
+        if not isinstance(sample, dict):
+            raise ValueError(f"shared builder contract check expects dict sample, got {type(sample)}")
+
+        sample_keys = set(sample.keys())
+        resolved_mode = mode
+        if resolved_mode == "auto":
+            resolved_mode = (
+                "shared"
+                if all(k in sample_keys for k in ("obs", "action_chunk", "meta"))
+                else "legacy"
+            )
+
+        errors = []
+        base_required = {"action", "image", "lang"}
+        missing_base = sorted(base_required - sample_keys)
+        if missing_base:
+            errors.append(f"missing base keys: {missing_base}")
+        if require_state and "state" not in sample_keys:
+            errors.append("`state` is required but missing.")
+
+        action_shape = _shape_2d(sample.get("action"))
+        if action_shape is None:
+            errors.append("`action` must be rank-2 with positive shape [T, D].")
+        else:
+            if expected_action_chunk_len is not None and action_shape[0] != expected_action_chunk_len:
+                errors.append(
+                    f"`action` T mismatch: got {action_shape[0]}, expected {expected_action_chunk_len}."
+                )
+            if expected_action_dim is not None and action_shape[1] != expected_action_dim:
+                errors.append(
+                    f"`action` D mismatch: got {action_shape[1]}, expected {expected_action_dim}."
+                )
+
+        if resolved_mode == "shared":
+            missing_shared = sorted({"obs", "action_chunk", "meta"} - sample_keys)
+            if missing_shared:
+                errors.append(f"shared mode missing keys: {missing_shared}")
+            action_chunk_shape = _shape_2d(sample.get("action_chunk"))
+            if action_chunk_shape is None:
+                errors.append("shared mode requires `action_chunk` rank-2 [T, D].")
+            elif action_shape is not None and action_shape != action_chunk_shape:
+                errors.append(
+                    f"`action_chunk` shape mismatch: got {action_chunk_shape}, expected {action_shape}."
+                )
+
+            meta = sample.get("meta")
+            if not isinstance(meta, dict):
+                errors.append("shared mode requires `meta` dict.")
+            else:
+                if meta.get("schema_version") != expected_schema_version:
+                    errors.append(
+                        f"`meta.schema_version` mismatch: got {meta.get('schema_version')!r}, "
+                        f"expected {expected_schema_version!r}."
+                    )
+                for key in [
+                    "dataset_name",
+                    "trajectory_id",
+                    "sample_step",
+                    "action_keys",
+                    "state_keys",
+                    "video_keys",
+                    "action_chunk_len",
+                    "action_dim",
+                ]:
+                    if key not in meta:
+                        errors.append(f"`meta.{key}` is required in shared mode.")
+
+                if action_shape is not None:
+                    if meta.get("action_chunk_len") != action_shape[0]:
+                        errors.append(
+                            f"`meta.action_chunk_len` mismatch: got {meta.get('action_chunk_len')}, expected {action_shape[0]}."
+                        )
+                    if meta.get("action_dim") != action_shape[1]:
+                        errors.append(
+                            f"`meta.action_dim` mismatch: got {meta.get('action_dim')}, expected {action_shape[1]}."
+                        )
+        elif strict_legacy_no_extra:
+            forbidden = sorted(sample_keys.intersection({"obs", "action_chunk", "meta"}))
+            if forbidden:
+                errors.append(f"legacy mode contains shared-only keys: {forbidden}")
+
+        step_metrics["debug/shared_builder_contract_checked"] = 1.0
+        step_metrics["debug/shared_builder_contract_is_shared"] = (
+            1.0 if resolved_mode == "shared" else 0.0
+        )
+        if errors:
+            step_metrics["debug/shared_builder_contract_fail"] = 1.0
+            raise ValueError("Shared-builder contract check failed: " + " | ".join(errors))
+
     def _train_step(self, batch_vla, batch_vlm=None):
         """execute single training step"""
+        step_metrics = {}
         with self.accelerator.accumulate(self.model):
+            self._check_shared_builder_contract(batch_vla, step_metrics)
             # VLA task forward propagation
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 output_dict = self.model.forward(batch_vla)
@@ -893,7 +1091,7 @@ class VLATrainer(TrainerUtils):
                 total_loss = action_loss
 
             debug_metrics = output_dict.get("debug_metrics", None)
-            step_metrics = {"action_dit_loss": float(action_loss.item())}
+            step_metrics["action_dit_loss"] = float(action_loss.item())
             if isinstance(debug_metrics, dict):
                 step_metrics.update(debug_metrics)
 
@@ -920,7 +1118,7 @@ class VLATrainer(TrainerUtils):
                         for p in action_model.parameters():
                             if p.grad is not None:
                                 p.grad.zero_()
-                    vlm_interface = getattr(base_model, "mapanythingllava3d_vlm_interface", None)
+                    vlm_interface, _ = _resolve_vlm_interface(base_model)
                     vlm_model = getattr(vlm_interface, "model", None) if vlm_interface is not None else None
                     language_model = getattr(vlm_model, "language_model", None) if vlm_model is not None else None
                     if language_model is not None:
@@ -932,7 +1130,7 @@ class VLATrainer(TrainerUtils):
             elif lang_freeze_steps and self.completed_steps < lang_freeze_steps:
                 try:
                     base_model = self.accelerator.unwrap_model(self.model)
-                    vlm_interface = getattr(base_model, "mapanythingllava3d_vlm_interface", None)
+                    vlm_interface, _ = _resolve_vlm_interface(base_model)
                     vlm_model = getattr(vlm_interface, "model", None) if vlm_interface is not None else None
                     language_model = getattr(vlm_model, "language_model", None) if vlm_model is not None else None
                     if language_model is not None:

@@ -86,13 +86,13 @@ class Qwen_Adapter(baseframework):
         """
         super().__init__()
         self.config = config
+        self.qwen_vl_interface = get_vlm_model(config=self.config)
         self.use_proprio = self.config.framework.action_model.get("use_proprio", False)
         self.proprio_projector = ProprioProjector(
             llm_dim=self.qwen_vl_interface.model.config.hidden_size,
             proprio_dim=self.config.framework.action_model.get("state_dim", 0),
         ) if self.use_proprio else None
         self.phase = self.config.framework.action_model.get("phase", "Training")
-        self.qwen_vl_interface = get_vlm_model(config=self.config)
         self.config.framework.qwenvl.vl_hidden_dim = self.qwen_vl_interface.model.config.hidden_size
         self.action_query_num = self.config.framework.action_model.get("action_query_num", 64)
         self.action_model: L1RegressionActionHead = get_action_model(config=self.config)

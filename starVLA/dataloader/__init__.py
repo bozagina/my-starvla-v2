@@ -6,9 +6,34 @@ from torch.utils.data import DataLoader
 import numpy as np
 import torch.distributed as dist
 from pathlib import Path
-from starVLA.dataloader.vlm_datasets import make_vlm_dataloader
 
 logger = get_logger(__name__)
+
+
+def _inject_vla_builder_settings(cfg, vla_dataset_cfg):
+    """Inject optional builder settings into vla_data config with backward-compatible fallbacks."""
+    if vla_dataset_cfg is None:
+        return
+    if getattr(vla_dataset_cfg, "action_chunk_size", None) is not None:
+        return
+
+    action_model_cfg = getattr(getattr(cfg, "framework", None), "action_model", None)
+    future_window = getattr(action_model_cfg, "future_action_window_size", None)
+    if future_window is None:
+        return
+    try:
+        action_chunk_size = int(future_window) + 1
+    except Exception:
+        return
+    if action_chunk_size <= 0:
+        return
+    try:
+        vla_dataset_cfg.action_chunk_size = action_chunk_size
+    except Exception:
+        logger.warning(
+            "Unable to set `datasets.vla_data.action_chunk_size` dynamically; "
+            "use explicit config if action window alignment is required."
+        )
 
 def save_dataset_statistics(dataset_statistics, run_dir):
     """Saves a `dataset_statistics.json` file."""
@@ -38,6 +63,7 @@ def build_dataloader(cfg, dataset_py="lerobot_datasets_oxe"): # TODO now here on
     if dataset_py == "lerobot_datasets":
         from starVLA.dataloader.lerobot_datasets import get_vla_dataset, collate_fn
         vla_dataset_cfg = cfg.datasets.vla_data
+        _inject_vla_builder_settings(cfg, vla_dataset_cfg)
 
         vla_dataset = get_vla_dataset(data_cfg=vla_dataset_cfg)
         
@@ -54,6 +80,7 @@ def build_dataloader(cfg, dataset_py="lerobot_datasets_oxe"): # TODO now here on
             vla_dataset.save_dataset_statistics(output_dir / "dataset_statistics.json")
         return vla_train_dataloader
     elif dataset_py == "vlm_datasets":
+        from starVLA.dataloader.vlm_datasets import make_vlm_dataloader
         vlm_data_module = make_vlm_dataloader(cfg)
         vlm_train_dataloader = vlm_data_module["train_dataloader"]
         

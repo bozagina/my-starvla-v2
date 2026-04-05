@@ -19,6 +19,11 @@ from starVLA.training.trainer_utils import initialize_overwatch
 
 logger = initialize_overwatch(__name__)
 
+LEGACY_FRAMEWORK_ALIASES = {
+    # Legacy naming in some training yaml files.
+    "QwenFM": "QwenGR00T",
+}
+
 try:
     pkg_path = __path__
 except NameError:
@@ -31,7 +36,20 @@ if pkg_path is not None:
             importlib.import_module(f"{__name__}.{module_name}")
         except Exception as e:
             logger.warning(f"Failed to auto-import framework submodule {module_name}: {e}")
-        
+
+
+def _resolve_framework_id(cfg):
+    if not hasattr(cfg.framework, "name"):
+        # Backward compatibility for legacy config yaml.
+        cfg.framework.name = cfg.framework.framework_py
+
+    requested_id = cfg.framework.name
+    resolved_id = LEGACY_FRAMEWORK_ALIASES.get(requested_id, requested_id)
+    if resolved_id != requested_id:
+        logger.warning(f"Framework `{requested_id}` is deprecated, fallback to `{resolved_id}`.")
+    return requested_id, resolved_id
+
+
 def build_framework(cfg):
     """
     Build a framework model from config.
@@ -42,22 +60,17 @@ def build_framework(cfg):
         nn.Module: Instantiated framework model.
     """
 
-    if not hasattr(cfg.framework, "name"): 
-        cfg.framework.name = cfg.framework.framework_py  # Backward compatibility for legacy config yaml
-        
-    if cfg.framework.name == "QwenOFT":
-        from starVLA.model.framework.QwenOFT import Qwenvl_OFT
-        return Qwenvl_OFT(cfg)
-    elif cfg.framework.name == "QwenFast":
-        from starVLA.model.framework.QwenFast import Qwenvl_Fast
-        return Qwenvl_Fast(cfg)
+    requested_id, framework_id = _resolve_framework_id(cfg)
 
     # auto detect from registry
-    framework_id = cfg.framework.name
     if framework_id not in FRAMEWORK_REGISTRY._registry:
-        raise NotImplementedError(f"Framework {cfg.framework.name} is not implemented. Plz, python yourframework_py to specify framework module.")
-    
-    MODLE_CLASS = FRAMEWORK_REGISTRY[framework_id]
-    return MODLE_CLASS(cfg)
+        qwen_frameworks = sorted([name for name in FRAMEWORK_REGISTRY._registry if name.lower().startswith("qwen")])
+        raise NotImplementedError(
+            f"Framework `{requested_id}` (resolved `{framework_id}`) is not implemented. "
+            f"Available Qwen frameworks: {qwen_frameworks}"
+        )
+
+    model_class = FRAMEWORK_REGISTRY[framework_id]
+    return model_class(cfg)
 
 __all__ = ["build_framework", "FRAMEWORK_REGISTRY"]

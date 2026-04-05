@@ -2,7 +2,8 @@
 set -euo pipefail
 
 HOST="${HOST:-myserver}"
-REMOTE_CKPT="${REMOTE_CKPT:-/2025233147/zzq/SpatialVLA_llava3d/starVLA/results/Checkpoints}"
+REMOTE_REPO="${REMOTE_REPO:-/2025233147/zzq_0317/starVLA}"
+REMOTE_CKPT="${REMOTE_CKPT:-$REMOTE_REPO/results/Checkpoints}"
 LOCAL_OUT="${1:-$PWD/_remote_runs}"
 RUN_ID="${RUN_ID:-}"
 RUN_FILTER="${RUN_FILTER:-}"
@@ -65,14 +66,37 @@ if [ -n "$RUN_FILTER" ]; then
 fi
 
 if [ -n "$RUN_ID" ]; then
-  LATEST_REL="$RUN_ID"
+  MATCHED_RUNS=$(
+    printf "%s\n" "$RUNS" \
+      | awk -v rid="$RUN_ID" '
+          $0 == rid { print; next }
+          index($0, rid "__") == 1 { print }
+        ' \
+      || true
+  )
+  if [ -n "${MATCHED_RUNS:-}" ]; then
+    LATEST_REL="$(printf "%s\n" "$MATCHED_RUNS" | sort | tail -n 1)"
+    if [ "$LATEST_REL" != "$RUN_ID" ]; then
+      echo "[fetch] INFO: RUN_ID matched by prefix, selected: $LATEST_REL"
+    fi
+  else
+    echo "[fetch] WARN: RUN_ID '$RUN_ID' not found in run directories; using it as-is."
+    LATEST_REL="$RUN_ID"
+  fi
 else
   LATEST_REL=$(
     printf "%s\n" "$RUNS" \
       | awk '
-          match($0, /_20[0-9]{6}_[0-9]{6}$/) {
-            ts = substr($0, RSTART + 1, RLENGTH - 1)
-            print ts "\t" $0
+          {
+            run = $0
+            # Allow run dir suffixes like "__ALG1-MASK-20260301-002-OC".
+            base = run
+            sub(/__.*/, "", base)
+            if (match(base, /_20[0-9]{6}_[0-9]{6}$/)) {
+              ts = substr(base, RSTART + 1, RLENGTH - 1)
+              gsub(/_/, "", ts)
+              print ts "\t" run
+            }
           }
         ' \
       | sort -k1,1 \
@@ -119,4 +143,28 @@ ls -lh "$LOCAL_RUN_PATH" || true
 if [ ! -f "$LOCAL_RUN_PATH/train.log" ] && [ -f "$LOCAL_RUN_PATH/train.raw.log" ]; then
   tr '\r' '\n' < "$LOCAL_RUN_PATH/train.raw.log" > "$LOCAL_RUN_PATH/train.log"
   echo "[fetch] NOTE: train.log missing on source; generated locally from train.raw.log"
+fi
+
+# Try to extract experiment identity from run config for later analysis handoff.
+CONFIG_FILE="$LOCAL_RUN_PATH/config.yaml"
+RUN_META_FILE="$LOCAL_RUN_PATH/run_identity.txt"
+if [ -f "$CONFIG_FILE" ]; then
+  RUN_ID_LINE="$(grep -E '^run_id:' "$CONFIG_FILE" | head -n 1 || true)"
+  RUN_ID_VALUE="$(printf "%s" "$RUN_ID_LINE" | sed -E 's/^run_id:[[:space:]]*//; s/[[:space:]]+$//; s/^"//; s/"$//')"
+  EXP_ID_VALUE="$(printf "%s" "$RUN_ID_VALUE" | grep -oE 'ALG1-[A-Z]+-[0-9]{8}-[0-9]{3}-[A-Z0-9_]+' | head -n 1 || true)"
+  SHORT_TAG_VALUE="$(printf "%s" "$RUN_ID_VALUE" | grep -oE '[A-Z]+-[0-9]{4}-[0-9]{3}' | head -n 1 || true)"
+  {
+    echo "run_dir=$LATEST_REL"
+    echo "run_id=$RUN_ID_VALUE"
+    echo "exp_id=$EXP_ID_VALUE"
+    echo "run_tag=$SHORT_TAG_VALUE"
+  } > "$RUN_META_FILE"
+  echo "[fetch] Run identity saved: $RUN_META_FILE"
+  if [ -n "$EXP_ID_VALUE" ]; then
+    echo "[fetch] Parsed EXP_ID: $EXP_ID_VALUE"
+  elif [ -n "$SHORT_TAG_VALUE" ]; then
+    echo "[fetch] Parsed run tag: $SHORT_TAG_VALUE"
+  else
+    echo "[fetch] WARN: No EXP_ID/run tag found in run_id. Recommend appending '__ALG1-...'."
+  fi
 fi

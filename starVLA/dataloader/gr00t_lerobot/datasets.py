@@ -1448,6 +1448,57 @@ def get_used_modality_keys(modality_keys: dict) -> tuple[list, list]:
     
     return used_action_keys, used_state_keys
 
+
+def _cfg_enabled(cfg, key: str, default: bool = False) -> bool:
+    if cfg is None:
+        return default
+    value = cfg.get(key, default)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
+
+
+def build_shared_vla_sample(
+    *,
+    images,
+    action_chunk: np.ndarray,
+    language: str,
+    state: np.ndarray | None,
+    dataset_name: str,
+    trajectory_id: int,
+    step_index: int,
+    action_keys: list[str],
+    state_keys: list[str],
+    video_keys: list[str],
+    builder_enabled: bool,
+):
+    """Build backward-compatible VLA sample with optional shared-builder fields."""
+    sample = {
+        "action": action_chunk,
+        "image": images,
+        "lang": language,
+    }
+    if state is not None:
+        sample["state"] = state
+
+    if not builder_enabled:
+        return sample
+
+    sample["obs"] = images
+    sample["action_chunk"] = action_chunk
+    sample["meta"] = {
+        "schema_version": "p1_shared_builder_v1",
+        "dataset_name": str(dataset_name),
+        "trajectory_id": int(trajectory_id),
+        "sample_step": int(step_index),
+        "action_keys": list(action_keys),
+        "state_keys": list(state_keys),
+        "video_keys": list(video_keys),
+        "action_chunk_len": int(action_chunk.shape[0]) if action_chunk.ndim >= 1 else 0,
+        "action_dim": int(action_chunk.shape[1]) if action_chunk.ndim >= 2 else 0,
+    }
+    return sample
+
 class LeRobotMixtureDataset(Dataset):
     """
     A mixture of multiple datasets. This class samples a single dataset based on the dataset weights and then calls the `__getitem__` method of the sampled dataset.
@@ -1678,23 +1729,28 @@ class LeRobotMixtureDataset(Dataset):
                     action.append(data[action_key])
                 action = np.concatenate(action, axis=1).astype(np.float16)
 
-                state = []
-                for state_key in dataset.modality_keys["state"]:
-                    state.append(data[state_key])
-                state = np.concatenate(state, axis=1).astype(np.float16)
-                
+                include_state = _cfg_enabled(self.data_cfg, "include_state", default=False)
+                shared_builder_enabled = _cfg_enabled(self.data_cfg, "shared_builder_enabled", default=False)
                 state = None
-                
-                if self.data_cfg is not None and self.data_cfg.get("include_state", False) not in ["False", False]:
-                    
-                    state = []
+                if include_state:
+                    state_values = []
                     for state_key in dataset.modality_keys["state"]:
-                        state.append(data[state_key])
-                    state = np.concatenate(state, axis=1).astype(np.float16)
-                    # prim_images
-                    return dict(action=action, image=all_images, lang=language, state=state)
+                        state_values.append(data[state_key])
+                    state = np.concatenate(state_values, axis=1).astype(np.float16)
 
-                return dict(action=action, image=all_images, lang=language)
+                return build_shared_vla_sample(
+                    images=all_images,
+                    action_chunk=action,
+                    language=language,
+                    state=state,
+                    dataset_name=dataset.dataset_name,
+                    trajectory_id=trajectory_id,
+                    step_index=step,
+                    action_keys=dataset.modality_keys["action"],
+                    state_keys=dataset.modality_keys.get("state", []),
+                    video_keys=dataset.modality_keys.get("video", []),
+                    builder_enabled=shared_builder_enabled,
+                )
                 
             except Exception as e:
                 last_exception = e
@@ -2184,5 +2240,3 @@ class LeRobotMixtureDataset(Dataset):
                 dataset.set_transforms_metadata(self.merged_metadata[dataset.tag])
         
         print(f"Applied cached statistics for {len(self.merged_metadata)} embodiment tags.")
-
-
