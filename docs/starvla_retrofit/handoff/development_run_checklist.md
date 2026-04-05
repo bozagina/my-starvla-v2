@@ -117,6 +117,26 @@ bash /Users/bazinga/code/my-starvla-v2/tools/fetch_latest_run_files.sh
 - `summary.jsonl`
 - `train.log` 或 `train.raw.log`
 
+3. Shared builder 样本契约校验（P2 起推荐执行）：
+
+Schema 文档：
+- `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/shared_builder_schema_contract.md`
+
+Validator CLI：
+- `/Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py`
+
+示例：
+
+```bash
+python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py \
+  --smoke-log /path/to/shared_builder_smoke.log \
+  --mode auto \
+  --expected-schema-version p1_shared_builder_v1 \
+  --expected-action-chunk-len 16 \
+  --expected-action-dim 7 \
+  --require-state
+```
+
 ---
 
 ## 5) 注意事项（高频踩坑）

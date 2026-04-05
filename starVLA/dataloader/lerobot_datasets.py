@@ -6,6 +6,7 @@
 
 from pathlib import Path
 from typing import Sequence
+import copy
 from omegaconf import OmegaConf
 
 from starVLA.dataloader.gr00t_lerobot.datasets import LeRobotSingleDataset, LeRobotMixtureDataset
@@ -15,6 +16,24 @@ from starVLA.dataloader.gr00t_lerobot.embodiment_tags import ROBOT_TYPE_TO_EMBOD
 
 def collate_fn(batch):
     return batch
+
+
+def _resolve_action_chunk_size(data_cfg) -> int | None:
+    """Resolve action chunk size from data config."""
+    if data_cfg is None:
+        return None
+
+    chunk_size = data_cfg.get("action_chunk_size", None)
+    if chunk_size is None:
+        return None
+    try:
+        chunk_size = int(chunk_size)
+    except Exception:
+        return None
+    if chunk_size <= 0:
+        return None
+    return chunk_size
+
 
 def make_LeRobotSingleDataset(
     data_root_dir: Path | str,
@@ -33,7 +52,11 @@ def make_LeRobotSingleDataset(
     :return: A LeRobotSingleDataset object.
     """
     
-    data_config = ROBOT_TYPE_CONFIG_MAP[robot_type]
+    # Deep-copy to avoid mutating shared singleton config objects in ROBOT_TYPE_CONFIG_MAP.
+    data_config = copy.deepcopy(ROBOT_TYPE_CONFIG_MAP[robot_type])
+    action_chunk_size = _resolve_action_chunk_size(data_cfg)
+    if action_chunk_size is not None and hasattr(data_config, "action_indices"):
+        data_config.action_indices = list(range(action_chunk_size))
     modality_config = data_config.modality_config()
     transforms = data_config.transform()
     dataset_path = data_root_dir / data_name

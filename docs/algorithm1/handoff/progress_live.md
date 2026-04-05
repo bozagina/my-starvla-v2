@@ -2933,3 +2933,422 @@ Copy this block for each new entry:
   - Continue P1 development work using `bootstrap_session.sh prompt` as default entry command.
 - Commit message:
   - `[ALG1-INFRA-20260403-007-OC] set bootstrap default prompt to retrofit and add prompt-legacy`
+
+## [2026-04-05 15:02:33 +08:00] ALG1-INFRA-20260405-001-OC retrofit compact startup and gate entry
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - ...
+- Changes:
+  - Files:
+    - `...`
+  - Code/Config summary:
+    - ...
+- Evidence:
+  - Commands:
+    - `...`
+  - Key outputs/metrics:
+    - ...
+- Decision:
+  - ...
+- Risks/Notes:
+  - ...
+- Next step:
+  - ...
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] retrofit compact startup and gate entry`
+
+## [2026-04-05 15:06:36 +08:00] ALG1-MASK-20260301-001-OC Refresh BLOCKED_WAIT_REMOTE with explicit remote-artifact requirements
+
+- Owner: OC
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Keep this historical mask stream parked while making blocker artifacts explicit to avoid silent deadlock.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added latest authoritative status refresh for the same EXP_ID; no source-code or runtime behavior changes.
+- Evidence:
+  - Commands:
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/check_deadlock_risk.py --max-open-hours 24`
+    - `bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh`
+  - Key outputs/metrics:
+    - Deadlock checker flagged stale open entry age `50.2h` for `ALG1-MASK-20260301-001-OC`.
+    - Readiness reported `READY_TO_DEVELOP=NO` due to this stale open status.
+- Decision:
+  - Keep this stream in `BLOCKED_WAIT_REMOTE` until remote evidence bundle is provided by owner.
+- Risks/Notes:
+  - Missing artifacts: `run_identity.txt`, `config.yaml`, `metrics.jsonl`, `summary.jsonl`, `train.log` (or `train.raw.log`).
+  - Owner: user remote side. Next retry checkpoint: `2026-04-05 20:00:00 +08:00`.
+- Next step:
+  - Re-run deadlock/readiness after artifacts are received or at next retry checkpoint.
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] refresh stale blocked remote status and restore readiness gate`
+
+## [2026-04-05 15:21:49 +08:00] ALG1-INFRA-20260405-001-OC P1 qwen-first VLM resolution for trainer and VLM factory
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Enter `P1` with minimal invasive de-hardcoding of legacy MapAnything path access while preserving backward compatibility.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/modules/vlm/__init__.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `_resolve_base_vlm_path` and `_resolve_vlm_interface` in trainer with `Qwen -> legacy` priority.
+    - Replaced direct `cfg.framework.mapanything_llava3d.base_vlm` read in `build_model` with safe resolver + explicit warning.
+    - Updated grad-hook / grad-metric collection and warmup grad-zero branches to resolve runtime VLM interface via helper.
+    - Refactored VLM factory to resolve base VLM from `framework.qwenvl.base_vlm` first, keep legacy fallback, and harden Qwen2.5/Qwen3 name matching.
+- Evidence:
+  - Commands:
+    - `git -C /Users/bazinga/code/my-starvla-v2 diff -- starVLA/training/train_starvla.py`
+    - `git -C /Users/bazinga/code/my-starvla-v2 diff -- starVLA/model/modules/vlm/__init__.py`
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py /Users/bazinga/code/my-starvla-v2/starVLA/model/modules/vlm/__init__.py`
+    - `rg -n "mapanything_llava3d\\.base_vlm|mapanythingllava3d_vlm_interface|_resolve_base_vlm_path|_resolve_vlm_interface" /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py /Users/bazinga/code/my-starvla-v2/starVLA/model/modules/vlm/__init__.py`
+  - Key outputs/metrics:
+    - `py_compile` passed for both changed Python files.
+    - Direct hardcoded legacy reads in trainer were replaced by resolver calls (legacy kept as fallback only).
+    - Runtime smoke import attempt in current shell failed with `ModuleNotFoundError: No module named 'omegaconf'`; this round uses syntax-level validation only.
+- Decision:
+  - `P1` minimal compatibility patch is in place for Qwen-first path without dropping legacy compatibility.
+- Risks/Notes:
+  - Current shell environment lacks runtime dependency (`omegaconf`), so execution-level smoke must be run in project training environment.
+  - Remote effectiveness must still be judged only by user-provided remote logs/config/metrics.
+- Next step:
+  - Run one-step local/remote smoke in full training env using Qwen config and verify trainer path behavior, then continue shared builder contract alignment with T1/T2.
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] de-hardcode legacy VLM access with qwen-first compatible resolvers`
+
+## [2026-04-05 15:36:09 +08:00] ALG1-INFRA-20260405-001-OC P1 framework selector and qwen adapter init hardening
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Continue `P1` minimal compatibility hardening in framework builder path for Qwen-only development flow.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/__init__.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenAdapter.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_oxe.yaml`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added legacy framework alias mapping `QwenFM -> QwenGR00T` in framework factory with explicit warning.
+    - Hardened framework-not-found error to return available Qwen framework names.
+    - Fixed `QwenAdapter` initialization order bug: `qwen_vl_interface` now initialized before `ProprioProjector` reads its hidden size.
+    - Updated default OXE training config to `framework.name: QwenGR00T` to align with active Qwen framework registry and examples.
+- Evidence:
+  - Commands:
+    - `git -C /Users/bazinga/code/my-starvla-v2 diff -- starVLA/model/framework/__init__.py starVLA/model/framework/QwenAdapter.py starVLA/config/training/starvla_cotrain_oxe.yaml`
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/__init__.py /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenAdapter.py /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py /Users/bazinga/code/my-starvla-v2/starVLA/model/modules/vlm/__init__.py`
+    - `rg -n "LEGACY_FRAMEWORK_ALIASES|QwenFM|_resolve_framework_id|Available Qwen frameworks|qwen_vl_interface = get_vlm_model" /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/__init__.py /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenAdapter.py /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_oxe.yaml`
+  - Key outputs/metrics:
+    - `py_compile` passed for all touched Python files.
+    - Framework builder now resolves `QwenFM` alias and reports Qwen options when unknown name is given.
+    - OXE config framework name now points to an existing registered Qwen framework.
+- Decision:
+  - Keep Qwen-first compatibility by default while preserving a narrow legacy alias bridge to avoid config breakage.
+- Risks/Notes:
+  - Full execution smoke still depends on runtime env dependencies (e.g., `omegaconf`) not present in current shell.
+  - Remote effectiveness remains user-evidence-gated (`config/log/metrics/summary`).
+- Next step:
+  - Run in training env with one-step Qwen config smoke and verify framework resolution + trainer path, then continue P1 shared builder/schema handshake.
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] harden framework resolution and fix qwen adapter init ordering`
+
+## [2026-04-05 15:47:51 +08:00] ALG1-INFRA-20260405-001-OC P1 shared builder skeleton in dataloader whitelist
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Land a minimal shared pseudo-label builder skeleton in dataloader path with backward compatibility.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/dataloader/gr00t_lerobot/datasets.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/dataloader/lerobot_datasets.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/dataloader/__init__.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_oxe.yaml`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_libero.yaml`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `build_shared_vla_sample` in mixture dataset path: legacy keys (`action/image/lang/state`) are preserved; optional builder fields (`obs/action_chunk/meta`) are appended only when `shared_builder_enabled=true`.
+    - Added robust bool parser `_cfg_enabled` for config switches (`include_state`, `shared_builder_enabled`).
+    - Added action-chunk alignment pipeline:
+      - `build_dataloader`: inject `datasets.vla_data.action_chunk_size = future_action_window_size + 1` when absent.
+      - `make_LeRobotSingleDataset`: deep-copy robot config object and override `action_indices` with resolved chunk size.
+    - Added YAML switches with safe defaults (`shared_builder_enabled: false`) and optional `action_chunk_size` override comments for OXE/LIBERO training configs.
+- Evidence:
+  - Commands:
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/dataloader/__init__.py /Users/bazinga/code/my-starvla-v2/starVLA/dataloader/lerobot_datasets.py /Users/bazinga/code/my-starvla-v2/starVLA/dataloader/gr00t_lerobot/datasets.py`
+    - `rg -n "shared_builder_enabled|action_chunk_size|build_shared_vla_sample|_cfg_enabled|_resolve_action_chunk_size|_inject_vla_builder_settings" /Users/bazinga/code/my-starvla-v2/starVLA/dataloader /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_*.yaml`
+    - `python - <<'PY' ... ast.parse(... datasets.py ... build_shared_vla_sample ...) ... PY`
+  - Key outputs/metrics:
+    - `py_compile` passed for all modified dataloader Python files.
+    - Switch fields and builder functions are present in code + configs.
+    - Local function-level smoke (AST extraction) output:
+      - `legacy_keys ['action', 'image', 'lang', 'state']`
+      - `shared_keys ['action', 'action_chunk', 'image', 'lang', 'meta', 'obs', 'state']`
+      - `meta_schema p1_shared_builder_v1`
+      - `meta_shape 16 7`
+- Decision:
+  - Shared builder skeleton is now in place for P1 without breaking default behavior.
+- Risks/Notes:
+  - Current shell lacks full runtime deps for end-to-end dataloader run (`torch/accelerate/av/...`), so this round uses syntax + function-level smoke evidence.
+  - Remote effectiveness remains gated by user-provided remote logs/config/metrics.
+- Next step:
+  - In full training env, run one batch loader smoke with `shared_builder_enabled=true` and record real sample keys/shapes for T2/T4 contract handoff.
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] add shared builder skeleton and action-window alignment in dataloader path`
+
+## [2026-04-05 16:11:09 +08:00] ALG1-INFRA-20260405-001-OC P1 remote smoke auto-fallback and dual-toggle evidence
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Unblock remote P1 smoke collection under incomplete runtime env while preserving a dataloader-first execution path.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/tools/handoff/run_remote_shared_builder_smoke.sh`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Script summary:
+    - Added `SMOKE_MODE` (`auto|dataloader|builder_unit`) to remote smoke helper.
+    - `auto` mode now tries real dataloader smoke first; if runtime deps are missing, it falls back to function-level `build_shared_vla_sample` smoke by AST extraction from `starVLA/dataloader/gr00t_lerobot/datasets.py`.
+    - Unified JSON output shape for both modes (`sample_keys`, shapes, `meta`) and added fallback reason fields.
+- Evidence:
+  - Commands:
+    - `bash -n /Users/bazinga/code/my-starvla-v2/tools/handoff/run_remote_shared_builder_smoke.sh`
+    - `HOST=myserver REMOTE_REPO=/2025233147/zzq_0317/starVLA PYTHON_BIN=python3 SMOKE_MODE=auto /Users/bazinga/code/my-starvla-v2/tools/handoff/run_remote_shared_builder_smoke.sh`
+    - `HOST=myserver REMOTE_REPO=/2025233147/zzq_0317/starVLA PYTHON_BIN=python3 SMOKE_MODE=auto SHARED_BUILDER_ENABLED=false INCLUDE_STATE=true /Users/bazinga/code/my-starvla-v2/tools/handoff/run_remote_shared_builder_smoke.sh`
+  - Key outputs/metrics:
+    - Remote `shared_builder_enabled=true` JSON:
+      - `sample_keys=['action','action_chunk','image','lang','meta','obs','state']`
+      - `action_shape=[16,7]`, `action_chunk_shape=[16,7]`, `state_shape=[14]`
+      - `meta.schema_version='p1_shared_builder_v1'`, `meta.action_chunk_len=16`, `meta.action_dim=7`
+    - Remote `shared_builder_enabled=false` JSON:
+      - `sample_keys=['action','image','lang','state']`
+      - `action_chunk_shape=null`, `meta=null`
+    - Both runs reported identical fallback cause in current remote env:
+      - `fallback_reason='ModuleNotFoundError: No module named omegaconf'`
+    - Remote logs:
+      - `/2025233147/zzq_0317/starVLA/results/Checkpoints/_launch_logs/shared_builder_smoke_20260405_161045.log`
+      - `/2025233147/zzq_0317/starVLA/results/Checkpoints/_launch_logs/shared_builder_smoke_20260405_161053.log`
+- Decision:
+  - Accept function-level remote smoke as interim P1 evidence; dataloader-level smoke remains pending until remote env deps are prepared.
+- Risks/Notes:
+  - Current remote environment does not satisfy dataloader runtime dependencies (`omegaconf` absent; likely additional missing packages).
+  - Remote repo had previously synced files in wrong root-level location; tracked paths under `starVLA/...` were re-synced and verified before rerun.
+- Next step:
+  - Prepare a minimal remote runtime dependency set and rerun `SMOKE_MODE=dataloader` for full-chain evidence capture.
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] add remote smoke auto-fallback and record dual-toggle shared-builder evidence`
+
+## [2026-04-05 16:35:28 +08:00] ALG1-INFRA-20260405-001-OC P1 dataloader import decoupling and remote full-chain smoke pass
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Remove hard dependency of `lerobot_datasets` path on external `LLaVA_3D` import and complete remote dataloader-level smoke evidence.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/dataloader/__init__.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code summary:
+    - Moved `from starVLA.dataloader.vlm_datasets import make_vlm_dataloader` from module top-level into the `elif dataset_py == "vlm_datasets"` branch.
+    - This keeps `dataset_py=lerobot_datasets` independent from `LLaVA_3D` package presence, aligned with Qwen-only retrofit scope.
+- Evidence:
+  - Commands:
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/dataloader/__init__.py`
+    - `ssh myserver 'cd /2025233147/zzq_0317/starVLA && /2025233147/envs/llava3d_vla_train/bin/python - <<PY ... from starVLA.dataloader import build_dataloader ... PY'`
+    - Remote dataloader smoke (with existing LIBERO dataset path override and `video_backend=torchvision_av`) for both toggles.
+  - Key outputs/metrics:
+    - Import sanity check on remote: `import_ok True`.
+    - `shared_builder_enabled=true` dataloader smoke JSON:
+      - `sample_keys=['action','action_chunk','image','lang','meta','obs','state']`
+      - `action_shape=[16,7]`, `action_chunk_shape=[16,7]`, `state_shape=[1,8]`
+      - `meta.schema_version='p1_shared_builder_v1'`, `meta.action_chunk_len=16`, `meta.action_dim=7`
+    - `shared_builder_enabled=false` dataloader smoke JSON:
+      - `sample_keys=['action','image','lang','state']`
+      - `action_chunk_shape=null`, `meta=null`
+- Decision:
+  - P1 shared builder behavior is now validated on remote at dataloader full chain (using accessible LIBERO dataset root and stable backend override for smoke).
+- Risks/Notes:
+  - Default OXE config root still points to a non-existent dataset path on this server (`playground/Datasets/OXE_LEROBOT_DATASET/...`).
+  - `decord` backend can fail on some videos in this environment; smoke was stabilized with `video_backend=torchvision_av`.
+- Next step:
+  - If needed, add a dedicated smoke helper mode that accepts `DATA_ROOT_OVERRIDE`, `DATA_MIX_OVERRIDE`, `VIDEO_BACKEND_OVERRIDE` to avoid manual snippet edits.
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] decouple lerobot dataloader import from LLaVA_3D and validate remote full-chain shared-builder smoke`
+
+## [2026-04-05 16:42:00 +08:00] ALG1-INFRA-20260405-001-OC P1 user-side remote dataloader smoke confirmation
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Confirm P1 shared-builder behavior using user-executed remote smoke in training env.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Summary:
+    - Recorded user-side remote smoke outputs from `llava3d_vla_train` environment.
+- Evidence:
+  - Source:
+    - User-provided terminal output (remote server, branch `codex/tmp-20260402-p0-audit-infra`).
+  - Key outputs/metrics:
+    - `shared_builder_enabled=true`:
+      - `sample_keys=['action','action_chunk','image','lang','meta','obs','state']`
+      - `action_shape=[16,7]`, `action_chunk_shape=[16,7]`, `state_shape=[1,8]`
+      - `meta.schema_version='p1_shared_builder_v1'`, `meta.action_chunk_len=16`, `meta.action_dim=7`
+    - `shared_builder_enabled=false`:
+      - `sample_keys=['action','image','lang','state']`
+      - `action_chunk_shape=null`, `meta=null`
+- Decision:
+  - P1 shared-builder remote full-chain smoke is confirmed by user-side evidence.
+- Risks/Notes:
+  - `albumentations` update warning is non-blocking.
+  - Current smoke used explicit LIBERO path/backend override for server compatibility.
+- Next step:
+  - Move into next gate tasks (P2 schema/infra handshake and trainer insertion linkage) while preserving this validated sample contract.
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] record user-validated remote dataloader smoke evidence for shared builder`
+
+## [2026-04-05 16:56:31 +08:00] ALG1-INFRA-20260405-001-OC P2 schema contract and validator CLI for shared builder
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Enter P2 and freeze T1 builder output into a machine-checkable schema + validator contract.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/shared_builder_schema_contract.md`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Doc summary:
+    - Added validator CLI for shared/legacy sample contract validation from either payload JSON (`--payload-json`) or smoke log (`--smoke-log`).
+    - Added built-in demo payloads (`shared_ok`, `legacy_ok`, `shared_bad`) for quick positive/negative checks.
+    - Added schema contract doc with mode-specific required fields, shape constraints, schema version policy, and T3/T4 mapping rules.
+- Evidence:
+  - Commands:
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --help`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --demo shared_ok > /tmp/shared_ok_payload.json`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --payload-json /tmp/shared_ok_payload.json --mode shared --expected-action-chunk-len 16 --expected-action-dim 7 --require-state`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --demo legacy_ok > /tmp/legacy_ok_payload.json`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --payload-json /tmp/legacy_ok_payload.json --mode legacy --expected-action-chunk-len 16 --expected-action-dim 7 --require-state`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --demo shared_bad > /tmp/shared_bad_payload.json`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --payload-json /tmp/shared_bad_payload.json --mode shared --expected-action-chunk-len 16 --expected-action-dim 7 --require-state`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --smoke-log /tmp/shared_builder_smoke_true.log --mode auto --expected-action-chunk-len 16 --expected-action-dim 7 --require-state`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --smoke-log /tmp/shared_builder_smoke_false.log --mode auto --expected-action-chunk-len 16 --expected-action-dim 7 --require-state`
+  - Key outputs/metrics:
+    - `--help` command prints complete CLI usage and options.
+    - Positive checks: shared payload PASS, legacy payload PASS.
+    - Negative check: `shared_bad` payload FAIL with explicit errors:
+      - `action_chunk_shape` mismatch against `action_shape`
+      - `meta.schema_version` mismatch
+      - `meta.action_chunk_len` mismatch
+    - Real smoke-log parsing checks PASS for both shared and legacy logs.
+- Decision:
+  - P2 contract baseline is now available for machine-checking and downstream thread reuse.
+- Risks/Notes:
+  - Current validator targets summary payload contract (smoke/result JSON), which is sufficient for T2/T3/T4 handshake and acceptance gating.
+- Next step:
+  - Wire validator invocation into smoke workflow/checklist and add a short handoff note for T4 trainer insertion preconditions.
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] add shared-builder schema contract doc and CLI validator for shared/legacy modes`
+
+## [2026-04-05 16:57:47 +08:00] ALG1-INFRA-20260405-001-OC P2 checklist wiring for schema validator
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Make P2 validator executable from standard development checklist without extra tribal knowledge.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/development_run_checklist.md`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Doc summary:
+    - Added shared-builder schema validation subsection under remote validation checklist.
+    - Linked schema contract doc and validator CLI path with one ready-to-run command template.
+- Evidence:
+  - Commands:
+    - `rg -n "Shared builder 样本契约校验|shared_builder_schema_contract|validate_shared_builder_schema" /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/development_run_checklist.md`
+  - Key outputs/metrics:
+    - Checklist now contains explicit P2 contract validation command and artifact references.
+- Decision:
+  - P2 outputs are now integrated into the canonical run checklist for downstream use.
+- Risks/Notes:
+  - None blocking.
+- Next step:
+  - Start T4-oriented minimal trainer-side contract assertion insertion (config-gated, default-off).
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] wire shared-builder schema validator into development checklist`
+
+## [2026-04-05 17:01:34 +08:00] ALG1-INFRA-20260405-001-OC P2->T4 minimal trainer-side contract assertion (default-off)
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Add a minimal, config-gated trainer insertion point so shared-builder contract can be asserted before forward without changing default training behavior.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_oxe.yaml`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_libero.yaml`
+    - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/shared_builder_schema_contract.md`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added helper functions in trainer for config parsing/shape checks (`_cfg_get/_cfg_enabled/_to_int_or_none/_shape_2d`).
+    - Added `VLATrainer._check_shared_builder_contract(...)` and invoked it at the start of `_train_step` under `accelerate.accumulate`.
+    - Added config gate `trainer.shared_builder_contract_check` (default `enabled: false`) to OXE/LIBERO training YAMLs.
+    - Added trainer-side assertion section to schema contract doc for T4 handshake.
+- Evidence:
+  - Commands:
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+    - `rg -n "shared_builder_contract_check|_check_shared_builder_contract|debug/shared_builder_contract" /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_oxe.yaml /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_libero.yaml`
+    - `python - <<'PY' ... ast-extract _check_shared_builder_contract ... off/on/bad cases ... PY`
+  - Key outputs/metrics:
+    - Static compile passed.
+    - Config keys present in both training YAMLs.
+    - Function-level behavior check:
+      - `enabled=false` -> no-op (`case_off_ok {}`)
+      - `enabled=true` + valid sample -> pass and emits `debug/shared_builder_contract_checked`.
+      - `enabled=true` + invalid schema -> fail-fast with readable `ValueError`.
+- Decision:
+  - Minimal trainer insertion is in place and backward-compatible by default.
+- Risks/Notes:
+  - Contract assertion currently checks the first sample of each batch for low overhead; sufficient for gate-level consistency checks.
+- Next step:
+  - In remote training env, run one-step A/B check with `shared_builder_contract_check.enabled=false/true` and collect metrics/log behavior.
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] add config-gated trainer contract assertion for shared-builder samples`
+
+## [2026-04-05 17:04:02 +08:00] ALG1-INFRA-20260405-001-OC remote A/B validation for trainer contract gate
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Verify newly inserted trainer contract gate behavior on real remote batch (default-off vs enabled vs fail-fast).
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Runtime summary:
+    - Synced updated trainer/yaml files to remote tracked paths before verification.
+    - Executed remote Python check invoking `VLATrainer._check_shared_builder_contract` on dataloader-produced batch.
+- Evidence:
+  - Commands:
+    - `scp ... train_starvla.py/starvla_cotrain_oxe.yaml/starvla_cotrain_libero.yaml -> myserver:/2025233147/zzq_0317/starVLA/starVLA/...`
+    - `ssh myserver 'cd /2025233147/zzq_0317/starVLA && /2025233147/envs/llava3d_vla_train/bin/python - <<PY ... VLATrainer._check_shared_builder_contract ... PY'`
+  - Key outputs/metrics:
+    - `CONTRACT_CASE_OFF {}` (enabled=false is no-op; default path unchanged)
+    - `CONTRACT_CASE_ON {'debug/shared_builder_contract_checked': 1.0, 'debug/shared_builder_contract_is_shared': 1.0}`
+    - `CONTRACT_CASE_BAD expected_fail ValueError Shared-builder contract check failed: `action` D mismatch: got 7, expected 8.`
+- Decision:
+  - Trainer insertion behaves as designed: backward-compatible by default, strict and readable when enabled.
+- Risks/Notes:
+  - Remote run included benign `albumentations` version-check warning.
+- Next step:
+  - If you agree, we can package current P1/P2/T4-minimal changes into staged commits (infra hardening + schema/validator + trainer gate).
+- Commit message:
+  - `[ALG1-INFRA-20260405-001-OC] validate trainer shared-builder contract gate with remote A/B checks`
