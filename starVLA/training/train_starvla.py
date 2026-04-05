@@ -55,6 +55,50 @@ from accelerate.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _cfg_get(cfg_obj, key: str, default=None):
+    if cfg_obj is None:
+        return default
+    if hasattr(cfg_obj, "get"):
+        try:
+            return cfg_obj.get(key, default)
+        except Exception:
+            pass
+    return getattr(cfg_obj, key, default)
+
+
+def _cfg_enabled(cfg_obj, key: str, default: bool = False) -> bool:
+    value = _cfg_get(cfg_obj, key, default)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
+
+
+def _to_int_or_none(value):
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _shape_2d(value):
+    if value is None:
+        return None
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        return None
+    try:
+        dims = [int(x) for x in list(shape)]
+    except Exception:
+        return None
+    if len(dims) != 2:
+        return None
+    if dims[0] <= 0 or dims[1] <= 0:
+        return None
+    return dims
+
+
 def load_fast_tokenizer():
     fast_tokenizer = AutoProcessor.from_pretrained("physical-intelligence/fast", trust_remote_code=True)
     return fast_tokenizer
@@ -424,9 +468,128 @@ class VLATrainer(TrainerUtils):
             logger.info(f"  Gradient accumulation steps = {self.config.trainer.gradient_accumulation_steps}")
             logger.info(f"  Total batch size = {self.total_batch_size}")
 
+    def _check_shared_builder_contract(self, batch_vla, step_metrics: dict):
+        """Optional contract assertions for shared builder samples. Default disabled."""
+        contract_cfg = _cfg_get(getattr(self.config, "trainer", None), "shared_builder_contract_check", None)
+        enabled = _cfg_enabled(contract_cfg, "enabled", default=False)
+        if not enabled:
+            return
+
+        mode = str(_cfg_get(contract_cfg, "mode", "auto")).strip().lower()
+        if mode not in {"auto", "shared", "legacy"}:
+            raise ValueError(
+                f"Invalid trainer.shared_builder_contract_check.mode={mode!r}; "
+                "expected one of: auto/shared/legacy."
+            )
+        expected_schema_version = str(
+            _cfg_get(contract_cfg, "expected_schema_version", "p1_shared_builder_v1")
+        )
+        expected_action_chunk_len = _to_int_or_none(
+            _cfg_get(contract_cfg, "expected_action_chunk_len", None)
+        )
+        expected_action_dim = _to_int_or_none(_cfg_get(contract_cfg, "expected_action_dim", None))
+        require_state = _cfg_enabled(contract_cfg, "require_state", default=False)
+        strict_legacy_no_extra = _cfg_enabled(
+            contract_cfg, "strict_legacy_no_extra", default=True
+        )
+
+        if not isinstance(batch_vla, list) or len(batch_vla) == 0:
+            raise ValueError("shared builder contract check expects non-empty list batch.")
+        sample = batch_vla[0]
+        if not isinstance(sample, dict):
+            raise ValueError(f"shared builder contract check expects dict sample, got {type(sample)}")
+
+        sample_keys = set(sample.keys())
+        resolved_mode = mode
+        if resolved_mode == "auto":
+            resolved_mode = (
+                "shared"
+                if all(k in sample_keys for k in ("obs", "action_chunk", "meta"))
+                else "legacy"
+            )
+
+        errors = []
+        base_required = {"action", "image", "lang"}
+        missing_base = sorted(base_required - sample_keys)
+        if missing_base:
+            errors.append(f"missing base keys: {missing_base}")
+        if require_state and "state" not in sample_keys:
+            errors.append("`state` is required but missing.")
+
+        action_shape = _shape_2d(sample.get("action"))
+        if action_shape is None:
+            errors.append("`action` must be rank-2 with positive shape [T, D].")
+        else:
+            if expected_action_chunk_len is not None and action_shape[0] != expected_action_chunk_len:
+                errors.append(
+                    f"`action` T mismatch: got {action_shape[0]}, expected {expected_action_chunk_len}."
+                )
+            if expected_action_dim is not None and action_shape[1] != expected_action_dim:
+                errors.append(
+                    f"`action` D mismatch: got {action_shape[1]}, expected {expected_action_dim}."
+                )
+
+        if resolved_mode == "shared":
+            missing_shared = sorted({"obs", "action_chunk", "meta"} - sample_keys)
+            if missing_shared:
+                errors.append(f"shared mode missing keys: {missing_shared}")
+            action_chunk_shape = _shape_2d(sample.get("action_chunk"))
+            if action_chunk_shape is None:
+                errors.append("shared mode requires `action_chunk` rank-2 [T, D].")
+            elif action_shape is not None and action_shape != action_chunk_shape:
+                errors.append(
+                    f"`action_chunk` shape mismatch: got {action_chunk_shape}, expected {action_shape}."
+                )
+
+            meta = sample.get("meta")
+            if not isinstance(meta, dict):
+                errors.append("shared mode requires `meta` dict.")
+            else:
+                if meta.get("schema_version") != expected_schema_version:
+                    errors.append(
+                        f"`meta.schema_version` mismatch: got {meta.get('schema_version')!r}, "
+                        f"expected {expected_schema_version!r}."
+                    )
+                for key in [
+                    "dataset_name",
+                    "trajectory_id",
+                    "sample_step",
+                    "action_keys",
+                    "state_keys",
+                    "video_keys",
+                    "action_chunk_len",
+                    "action_dim",
+                ]:
+                    if key not in meta:
+                        errors.append(f"`meta.{key}` is required in shared mode.")
+
+                if action_shape is not None:
+                    if meta.get("action_chunk_len") != action_shape[0]:
+                        errors.append(
+                            f"`meta.action_chunk_len` mismatch: got {meta.get('action_chunk_len')}, expected {action_shape[0]}."
+                        )
+                    if meta.get("action_dim") != action_shape[1]:
+                        errors.append(
+                            f"`meta.action_dim` mismatch: got {meta.get('action_dim')}, expected {action_shape[1]}."
+                        )
+        elif strict_legacy_no_extra:
+            forbidden = sorted(sample_keys.intersection({"obs", "action_chunk", "meta"}))
+            if forbidden:
+                errors.append(f"legacy mode contains shared-only keys: {forbidden}")
+
+        step_metrics["debug/shared_builder_contract_checked"] = 1.0
+        step_metrics["debug/shared_builder_contract_is_shared"] = (
+            1.0 if resolved_mode == "shared" else 0.0
+        )
+        if errors:
+            step_metrics["debug/shared_builder_contract_fail"] = 1.0
+            raise ValueError("Shared-builder contract check failed: " + " | ".join(errors))
+
     def _train_step(self, batch_vla, batch_vlm=None):
         """execute single training step"""
+        step_metrics = {}
         with self.accelerator.accumulate(self.model):
+            self._check_shared_builder_contract(batch_vla, step_metrics)
             self.optimizer.zero_grad()
 
             # VLA task forward propagation
@@ -447,9 +610,8 @@ class VLATrainer(TrainerUtils):
             self.optimizer.step()
             self.lr_scheduler.step()
 
-        return {
-            "action_dit_loss": action_loss.item(),
-        }
+        step_metrics["action_dit_loss"] = action_loss.item()
+        return step_metrics
 
     def _finalize_training(self):
         """training end processing"""
@@ -470,7 +632,8 @@ class VLATrainer(TrainerUtils):
 
 
 def main(cfg) -> None:
-    logger.info("VLA Training :: Warming Up")
+    # Avoid accelerate logger call before distributed state is fully ready in some launch paths.
+    print("VLA Training :: Warming Up")
 
     #  Wrap config to enable access tracking
     cfg = wrap_config(cfg)

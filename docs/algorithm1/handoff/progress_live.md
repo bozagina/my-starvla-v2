@@ -126,3 +126,36 @@ This file records session-level execution status for retrofit phases.
   - Commit P1 dataloader/config changes, then enter P2/P3 contract gate insertion & training smoke.
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] land P1 shared builder dataloader contract with compatibility flag`
+
+## [2026-04-05 22:02:00 +08:00] ALG1-DATA-20260405-001-OC add trainer-side shared-builder contract check and startup logging guard
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Add P2/P3 trainer gate to validate shared-builder sample contract at runtime, and avoid early accelerate logger init failure path.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/config/training/starvla_cotrain_oxe.yaml`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/config/training/starvla_cotrain_libero.yaml`
+  - Code/Config summary:
+    - Added helper parsers (`_cfg_get/_cfg_enabled/_to_int_or_none/_shape_2d`) and `VLATrainer._check_shared_builder_contract(...)`.
+    - Contract checker supports `mode=auto|shared|legacy`, required keys, shape checks, `meta.schema_version`, and strict legacy no-extra-key option.
+    - Hooked contract checker into `_train_step` before forward pass with debug metrics.
+    - Replaced `main()` first `logger.info(...)` with `print(...)` to avoid launch-path sensitivity before accelerate logger state is ready.
+    - Added default trainer config block `trainer.shared_builder_contract_check` in both cotrain YAMLs.
+- Evidence:
+  - Commands:
+    - `/usr/bin/python3 -m py_compile starVLA/training/train_starvla.py`
+    - `rg -n "shared_builder_contract_check|expected_schema_version|strict_legacy_no_extra" starVLA/config/training/starvla_cotrain_*.yaml`
+  - Key outputs/metrics:
+    - `py_compile` passed for `train_starvla.py`.
+    - Both YAMLs include contract-check block defaults.
+- Decision:
+  - P2/P3 trainer gate path is now wired and configurable via CLI overrides used in smoke commands.
+- Risks/Notes:
+  - End-to-end accelerate smoke still requires user-side training env on server for final validation.
+- Next step:
+  - Commit this trainer/config patch and run/collect remote 20-step smoke logs with contract check enabled.
+- Commit message:
+  - `[ALG1-DATA-20260405-001-OC] add trainer contract gate for shared-builder schema checks`
