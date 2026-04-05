@@ -159,3 +159,31 @@ This file records session-level execution status for retrofit phases.
   - Commit this trainer/config patch and run/collect remote 20-step smoke logs with contract check enabled.
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] add trainer contract gate for shared-builder schema checks`
+
+## [2026-04-05 22:14:00 +08:00] ALG1-DATA-20260405-001-OC fix P3 smoke blocker by replacing non-existent framework id in oxe config
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Unblock P3 training smoke after failure `Framework QwenFM is not implemented`.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/config/training/starvla_cotrain_oxe.yaml`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Updated `framework.name` from `QwenFM` to implemented `QwenGR00T` in OXE cotrain config.
+    - Added explicit comment to prevent future regression.
+- Evidence:
+  - Commands:
+    - server smoke log showed `NotImplementedError: Framework QwenFM is not implemented` from `build_framework`.
+    - `rg -n "register\(\"QwenFM\"\)|framework.name:\s*QwenFM"` confirmed no `QwenFM` registration and only this config used it.
+  - Key outputs/metrics:
+    - Root cause isolated to framework id mismatch (not shared-builder contract path).
+- Decision:
+  - Keep contract gate path unchanged; fix only framework selection baseline for oxe smoke.
+- Risks/Notes:
+  - This is a config-level compatibility fix; model behavior follows `QwenGR00T` implementation.
+- Next step:
+  - Re-run 20-step accelerate smoke with same flags; no extra override needed for `framework.name` now.
+- Commit message:
+  - `[ALG1-DATA-20260405-001-OC] fix oxe smoke config to use implemented QwenGR00T framework`
