@@ -187,3 +187,34 @@ This file records session-level execution status for retrofit phases.
   - Re-run 20-step accelerate smoke with same flags; no extra override needed for `framework.name` now.
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] fix oxe smoke config to use implemented QwenGR00T framework`
+
+## [2026-04-06 11:08:00 +08:00] ALG1-DATA-20260405-001-OC add VLM attention fallback to bypass flash-attn ABI mismatch in P3 smoke
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Unblock P3 smoke when `flash_attn_2_cuda` import fails due ABI mismatch (`undefined symbol ... c10::Error`).
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/model/modules/vlm/QWen3.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/model/modules/vlm/QWen2_5.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Removed hard-coded `attn_implementation="flash_attention_2"` loading path.
+    - Added `requested_attn_impl = config.framework.qwenvl.attn_implementation` parsing with default flash.
+    - Added guarded fallback: if requested impl is flash and model loading throws, retry with `attn_implementation="sdpa"` and warning log.
+    - Kept behavior unchanged for non-flash attention implementations.
+- Evidence:
+  - Commands:
+    - server run log showed `ImportError ... flash_attn_2_cuda ... undefined symbol` during Qwen model init.
+    - `/usr/bin/python3 -m py_compile starVLA/model/modules/vlm/QWen3.py starVLA/model/modules/vlm/QWen2_5.py`
+  - Key outputs/metrics:
+    - Syntax check passed for both patched files.
+- Decision:
+  - Prefer runtime fallback over immediate environment rebuild to keep smoke gate moving.
+- Risks/Notes:
+  - `sdpa` may be slower than flash-attn; acceptable for 20-step smoke and contract gate verification.
+- Next step:
+  - Push patch to server tmp branch and rerun same accelerate smoke command (optionally set `--framework.qwenvl.attn_implementation sdpa`).
+- Commit message:
+  - `[ALG1-DATA-20260405-001-OC] add qwen vl attn fallback from flash to sdpa for smoke reliability`
