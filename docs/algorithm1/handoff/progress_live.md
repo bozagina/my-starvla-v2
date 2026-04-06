@@ -465,3 +465,31 @@ This file records session-level execution status for retrofit phases.
   - Run server-side tiny builder smoke (`num_samples=16~64`) and confirm output artifact stats before promoting to worktree/final.
 - Commit message:
   - `[ALG1-INFRA-20260406-001-OC] fix pseudo-label zero-risk consistency and trigger/mask degeneracy`
+## [2026-04-06 14:08:00 +08:00] ALG1-INFRA-20260406-001-OC verify P1 pseudo-label fix on 64-sample sanity output
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Confirm repaired pseudo-label logic on larger sanity set and close P1 consistency bugfix loop.
+- Changes:
+  - Files:
+    - `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - No code change in this entry; this is validation evidence for commit `ea6b3e9`.
+- Evidence:
+  - Commands:
+    - `cat /2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/PseudoLabels/p1_sanity_20260406_fix64/summary.json`
+    - jsonl stat check on `correction_dataset.jsonl` (`mask_all_one`, `risk0_trig1`).
+  - Key outputs/metrics:
+    - `num_samples=64`
+    - `trigger_distribution={0:9,1:55}`
+    - `risk_zero_trigger_one=0`
+    - `mask_all_one=0`
+- Decision:
+  - P1 pseudo-label consistency fix accepted on 64-sample sanity set.
+- Risks/Notes:
+  - Positive ratio remains high (55/64), may still need threshold tuning during larger-run calibration.
+- Next step:
+  - Promote branch flow `tmp -> worktree`, then prepare integration checks for next gate.
+- Commit message:
+  - `[ALG1-INFRA-20260406-001-OC] record 64-sample sanity pass for pseudo-label consistency fix`
