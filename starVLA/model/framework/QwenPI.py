@@ -25,6 +25,23 @@ logger = initialize_overwatch(__name__)
 # HuggingFace Default / LLaMa-2 IGNORE_INDEX (for labels)
 IGNORE_INDEX = -100
 
+def _cfg_get(cfg_obj, key: str, default=None):
+    if cfg_obj is None:
+        return default
+    if hasattr(cfg_obj, "get"):
+        try:
+            return cfg_obj.get(key, default)
+        except Exception:
+            pass
+    return getattr(cfg_obj, key, default)
+
+
+def _cfg_enabled(cfg_obj, key: str, default: bool = False) -> bool:
+    value = _cfg_get(cfg_obj, key, default)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
+
 from starVLA.model.framework.base_framework import baseframework
 from starVLA.model.modules.vlm import get_vlm_model
 from starVLA.model.modules.action_model.LayerwiseFM_ActionHeader import get_action_model, LayerwiseFlowmatchingActionHead
@@ -140,8 +157,19 @@ class Qwen_PI(baseframework):
             action_loss = self.action_model(vl_embs_list_repeated, actions_target_repeated, state_repeated)  # (B, chunk_len, action_dim)
 
 
+        output_dict = {"action_loss": action_loss}
+        hook_cfg = _cfg_get(getattr(self.config, "trainer", None), "optional_loss_hooks", None)
+        if _cfg_enabled(hook_cfg, "enabled", default=False):
+            a_cfg = _cfg_get(hook_cfg, "a_loss", None)
+            if _cfg_enabled(a_cfg, "enabled", default=False):
+                a_key = str(_cfg_get(a_cfg, "key", "a_loss"))
+                output_dict[a_key] = action_loss.new_zeros(())
+            corrective_cfg = _cfg_get(hook_cfg, "corrective_loss", None)
+            if _cfg_enabled(corrective_cfg, "enabled", default=False):
+                corrective_key = str(_cfg_get(corrective_cfg, "key", "corrective_loss"))
+                output_dict[corrective_key] = action_loss.new_zeros(())
 
-        return {"action_loss": action_loss}
+        return output_dict
 
     @torch.inference_mode()
     def predict_action( # TODO align  predict_action with forward, make api more flexible

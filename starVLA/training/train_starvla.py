@@ -962,6 +962,60 @@ class VLATrainer(TrainerUtils):
             except Exception:
                 pass
 
+    def _compute_optional_hook_losses(self, output_dict: dict, action_loss: torch.Tensor, step_metrics: dict):
+        """Optionally blend extra task losses into total loss (default disabled)."""
+        hooks_cfg = _cfg_get(getattr(self.config, "trainer", None), "optional_loss_hooks", None)
+        if not _cfg_enabled(hooks_cfg, "enabled", default=False):
+            return action_loss
+
+        strict_missing_key = _cfg_enabled(hooks_cfg, "strict_missing_key", default=False)
+        total_loss = action_loss
+        hook_specs = [
+            ("a_loss", "a_loss", "loss/a_module"),
+            ("corrective_loss", "corrective_loss", "loss/corrective"),
+        ]
+
+        for hook_name, default_key, default_metric_name in hook_specs:
+            hook_cfg = _cfg_get(hooks_cfg, hook_name, None)
+            if not _cfg_enabled(hook_cfg, "enabled", default=False):
+                continue
+
+            hook_key = str(_cfg_get(hook_cfg, "key", default_key))
+            metric_name = str(_cfg_get(hook_cfg, "metric_name", default_metric_name))
+            scale = float(_cfg_get(hook_cfg, "scale", 1.0))
+            hook_value = output_dict.get(hook_key, None)
+
+            if hook_value is None:
+                if strict_missing_key:
+                    raise KeyError(
+                        f"optional_loss_hooks requires key={hook_key!r} for {hook_name}, "
+                        "but model forward output does not contain it."
+                    )
+                step_metrics[f"debug/{hook_name}_missing"] = 1.0
+                continue
+
+            if isinstance(hook_value, (float, int)):
+                hook_loss = torch.tensor(
+                    float(hook_value),
+                    device=action_loss.device,
+                    dtype=action_loss.dtype,
+                )
+            elif torch.is_tensor(hook_value):
+                hook_loss = hook_value.to(device=action_loss.device, dtype=action_loss.dtype)
+                if hook_loss.ndim > 0:
+                    hook_loss = hook_loss.mean()
+            else:
+                raise TypeError(
+                    f"optional_loss_hooks expects float/int/tensor for key={hook_key!r}, got {type(hook_value)}"
+                )
+
+            total_loss = total_loss + scale * hook_loss
+            step_metrics[metric_name] = float(hook_loss.detach().float().item())
+            step_metrics[f"debug/{hook_name}_scale"] = float(scale)
+
+        step_metrics["loss/total"] = float(total_loss.detach().float().item())
+        return total_loss
+
     def _check_shared_builder_contract(self, batch_vla, step_metrics: dict):
         """Optional contract assertions for shared builder samples. Default disabled."""
         contract_cfg = _cfg_get(getattr(self.config, "trainer", None), "shared_builder_contract_check", None)
@@ -1088,12 +1142,20 @@ class VLATrainer(TrainerUtils):
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 output_dict = self.model.forward(batch_vla)
                 action_loss = output_dict["action_loss"]
-                total_loss = action_loss
 
             debug_metrics = output_dict.get("debug_metrics", None)
-            step_metrics["action_dit_loss"] = float(action_loss.item())
+            action_loss_value = float(action_loss.detach().float().item())
+            step_metrics["action_dit_loss"] = action_loss_value
+            step_metrics["loss/action"] = action_loss_value
             if isinstance(debug_metrics, dict):
                 step_metrics.update(debug_metrics)
+            total_loss = self._compute_optional_hook_losses(
+                output_dict=output_dict,
+                action_loss=action_loss,
+                step_metrics=step_metrics,
+            )
+            if "loss/total" not in step_metrics:
+                step_metrics["loss/total"] = float(total_loss.detach().float().item())
 
             # Guard against loss explosion before backward.
             if not torch.isfinite(total_loss).all():
@@ -1203,12 +1265,12 @@ class VLATrainer(TrainerUtils):
 
 
 def main(cfg) -> None:
-    logger.info("VLA Training :: Warming Up")
+    print("VLA Training :: Warming Up")
 
     #  Wrap config to enable access tracking
     cfg = wrap_config(cfg)
-    logger.info("✅ Configuration wrapped for access tracking")
     accelerator = build_accelerator(cfg)
+    logger.info("✅ Configuration wrapped for access tracking")
 
     # create output directory and save config
     output_dir = setup_directories(cfg=cfg)

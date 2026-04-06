@@ -108,6 +108,19 @@ trainer:
     expected_action_dim: null
     require_state: false
     strict_legacy_no_extra: true
+  optional_loss_hooks:
+    enabled: false
+    strict_missing_key: false
+    a_loss:
+      enabled: false
+      key: a_loss
+      metric_name: loss/a_module
+      scale: 1.0
+    corrective_loss:
+      enabled: false
+      key: corrective_loss
+      metric_name: loss/corrective
+      scale: 1.0
 
   optimizer:
     name: AdamW
