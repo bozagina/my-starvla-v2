@@ -3661,3 +3661,37 @@ Copy this block for each new entry:
   - Pull latest commit on server and rerun `smoke_forward_only`; verify no `ModuleNotFoundError: mpi4py`.
 - Commit message:
   - `[ALG1-INFRA-20260406-004-OC] set single-process DeepSpeed env defaults to avoid mpi4py dependency`
+
+## [2026-04-06 18:02:41 +08:00] ALG1-INFRA-20260406-004-OC remote forward-only smoke passed with contract + optional-hook metrics
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Close P2 infra smoke gate with full remote evidence after fixing mapanything/deepspeed/dist-init blockers.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Runtime evidence summary:
+    - Remote run `p2_hook_smoke_forward_only_20260406_v3` completed end-to-end and produced `metrics.jsonl`.
+    - Verified contract and hook metrics keys in output file.
+- Evidence:
+  - Commands:
+    - `cat results/Checkpoints/p2_hook_smoke_forward_only_20260406_v3/metrics.jsonl`
+    - `rg -n "debug/smoke_forward_only|debug/shared_builder_contract_checked|loss/total|loss/a_module|loss/corrective" results/Checkpoints/p2_hook_smoke_forward_only_20260406_v3/metrics.jsonl`
+  - Key outputs/metrics:
+    - `debug/shared_builder_contract_checked: 1.0`
+    - `debug/shared_builder_contract_is_shared: 1.0`
+    - `debug/smoke_forward_only: 1.0`
+    - `loss/action: 1.0754350423812866`
+    - `loss/a_module: 0.0`
+    - `loss/corrective: 0.0`
+    - `loss/total: 1.0754350423812866`
+    - No missing-key diagnostics (`debug/a_loss_missing`, `debug/corrective_loss_missing`) were observed.
+- Decision:
+  - P2 trainer insertion and optional-hook contract path are validated in remote smoke mode.
+- Risks/Notes:
+  - `a_loss/corrective_loss` are still stub-valued (0.0) in this phase; real non-zero loss design/implementation remains next-step work.
+- Next step:
+  - Start P2-next: define and implement real `a_loss` / `corrective_loss` computation path and verify non-zero behavior in smoke.
+- Commit message:
+  - `[ALG1-INFRA-20260406-004-OC] record passed remote forward-only smoke evidence for P2 hook contract`
