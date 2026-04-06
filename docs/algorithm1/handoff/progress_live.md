@@ -3695,3 +3695,47 @@ Copy this block for each new entry:
   - Start P2-next: define and implement real `a_loss` / `corrective_loss` computation path and verify non-zero behavior in smoke.
 - Commit message:
   - `[ALG1-INFRA-20260406-004-OC] record passed remote forward-only smoke evidence for P2 hook contract`
+
+## [2026-04-06 19:18:26 +08:00] ALG1-INFRA-20260406-005-OC implement pseudo-label driven optional hook losses (non-stub)
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Move P2 optional hooks from stub-only outputs to real trainable losses using correction pseudo labels.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/optional_loss_utils.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenGR00T.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/dataloader/gr00t_lerobot/datasets.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi.yaml`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `optional_loss_utils.build_optional_hook_targets(...)` to parse sample-level `pseudo_labels` (`trigger_label`, `risk_score`, `delta_action_norm`, `correction_mask`, `affected_region_prior`) into masked tensors.
+    - Replaced `a_loss/corrective_loss` zero stubs in `QwenPI` and `QwenGR00T` with real auxiliary heads and losses:
+      - `a_loss`: risk regression + trigger BCE.
+      - `corrective_loss`: delta-norm regression + correction-mask BCE + region-prior regression.
+    - Added debug counters `debug/a_loss_target_count` and `debug/corrective_loss_target_count` through `debug_metrics`.
+    - Added optional correction-supervision index in LeRobot dataloader:
+      - configurable by `datasets.vla_data.correction_supervision_enabled` + `correction_dataset_jsonl`.
+      - matches records by `(dataset_name, trajectory_id, sample_step)` and attaches `pseudo_labels` / `remaining_chunk` onto runtime samples.
+    - Extended `starvla_train_pi.yaml` with new optional data/hook weights (default off / backward-compatible).
+- Evidence:
+  - Commands:
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenGR00T.py /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/optional_loss_utils.py /Users/bazinga/code/my-starvla-v2/starVLA/dataloader/gr00t_lerobot/datasets.py`
+    - `rg -n "build_optional_hook_targets|_compute_optional_hook_outputs|debug/a_loss_target_count|debug/corrective_loss_target_count|correction_supervision_enabled|correction_dataset_jsonl" /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenGR00T.py /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/optional_loss_utils.py /Users/bazinga/code/my-starvla-v2/starVLA/dataloader/gr00t_lerobot/datasets.py /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi.yaml`
+  - Key outputs/metrics:
+    - `py_compile` passed for all modified Python files.
+    - Source grep confirms hook paths now compute losses from pseudo-label targets instead of `new_zeros(())`.
+- Decision:
+  - Keep this stage strictly config-gated so baseline training behavior is unchanged unless hook/data flags are enabled.
+- Risks/Notes:
+  - Remote runtime validation is still required to confirm non-zero `loss/a_module` and/or `loss/corrective` in `metrics.jsonl`.
+  - Local quick target-building probe could not run in current local env because `torch` package is unavailable here.
+- Next step:
+  - Run remote 1-step forward-only smoke with correction jsonl enabled and verify:
+    - `debug/a_loss_target_count > 0` and/or `debug/corrective_loss_target_count > 0`
+    - `loss/a_module` and `loss/corrective` are non-zero
+    - `loss/total = loss/action + scaled hook losses`
+- Commit message:
+  - `[ALG1-INFRA-20260406-005-OC] implement pseudo-label driven optional hook losses and dataloader wiring`

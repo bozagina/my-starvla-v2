@@ -52,6 +52,7 @@ def _cfg_enabled(cfg_obj, key: str, default: bool = False) -> bool:
     return bool(value)
 
 from starVLA.model.framework.base_framework import baseframework
+from starVLA.model.framework.optional_loss_utils import build_optional_hook_targets
 from starVLA.model.modules.vlm import get_vlm_model
 from starVLA.model.modules.action_model.GR00T_ActionHeader import get_action_model, FlowmatchingActionHead
 from starVLA.training.trainer_utils.trainer_tools import resize_images
@@ -95,6 +96,125 @@ class Qwen_GR00T(baseframework):
         self.future_action_window_size = config.framework.action_model.future_action_window_size
         self.past_action_window_size = config.framework.action_model.past_action_window_size
         self.chunk_len = self.past_action_window_size + 1 + self.future_action_window_size
+
+        llm_hidden_size = self.qwen_vl_interface.model.config.hidden_size
+        aux_hidden_dim = max(128, llm_hidden_size // 4)
+        self.a_risk_head = nn.Sequential(
+            nn.LayerNorm(llm_hidden_size),
+            nn.Linear(llm_hidden_size, aux_hidden_dim),
+            nn.SiLU(),
+            nn.Linear(aux_hidden_dim, 1),
+        )
+        self.a_trigger_head = nn.Sequential(
+            nn.LayerNorm(llm_hidden_size),
+            nn.Linear(llm_hidden_size, aux_hidden_dim),
+            nn.SiLU(),
+            nn.Linear(aux_hidden_dim, 1),
+        )
+        self.corrective_delta_head = nn.Sequential(
+            nn.LayerNorm(llm_hidden_size),
+            nn.Linear(llm_hidden_size, aux_hidden_dim),
+            nn.SiLU(),
+            nn.Linear(aux_hidden_dim, 1),
+        )
+        self.corrective_region_head = nn.Sequential(
+            nn.LayerNorm(llm_hidden_size),
+            nn.Linear(llm_hidden_size, aux_hidden_dim),
+            nn.SiLU(),
+            nn.Linear(aux_hidden_dim, self.chunk_len),
+        )
+
+    def _compute_optional_hook_outputs(
+        self,
+        *,
+        examples: List[dict],
+        pooled_hidden: torch.Tensor,
+        action_loss: torch.Tensor,
+    ) -> tuple[dict, dict]:
+        hook_cfg = _cfg_get(getattr(self.config, "trainer", None), "optional_loss_hooks", None)
+        if not _cfg_enabled(hook_cfg, "enabled", default=False):
+            return {}, {}
+
+        pooled_hidden = pooled_hidden.to(dtype=action_loss.dtype)
+        targets = build_optional_hook_targets(
+            examples,
+            chunk_len=self.chunk_len,
+            device=action_loss.device,
+            dtype=action_loss.dtype,
+        )
+        output_dict: dict[str, torch.Tensor] = {}
+        debug_metrics: dict[str, float] = {}
+
+        a_cfg = _cfg_get(hook_cfg, "a_loss", None)
+        if _cfg_enabled(a_cfg, "enabled", default=False):
+            a_key = str(_cfg_get(a_cfg, "key", "a_loss"))
+            risk_weight = float(_cfg_get(a_cfg, "risk_weight", 1.0))
+            trigger_weight = float(_cfg_get(a_cfg, "trigger_weight", 1.0))
+
+            risk_pred = self.a_risk_head(pooled_hidden).squeeze(-1)
+            trigger_logit = self.a_trigger_head(pooled_hidden).squeeze(-1)
+            a_loss = action_loss.new_zeros(())
+            target_count = 0
+
+            if targets["risk_mask"].any():
+                risk_mask = targets["risk_mask"]
+                a_loss = a_loss + risk_weight * F.mse_loss(
+                    risk_pred[risk_mask],
+                    targets["risk_score"][risk_mask],
+                )
+                target_count += int(risk_mask.sum().item())
+            if targets["trigger_mask"].any():
+                trigger_mask = targets["trigger_mask"]
+                a_loss = a_loss + trigger_weight * F.binary_cross_entropy_with_logits(
+                    trigger_logit[trigger_mask],
+                    targets["trigger_label"][trigger_mask].clamp(0.0, 1.0),
+                )
+                target_count += int(trigger_mask.sum().item())
+
+            output_dict[a_key] = a_loss
+            debug_metrics["debug/a_loss_target_count"] = float(target_count)
+
+        corrective_cfg = _cfg_get(hook_cfg, "corrective_loss", None)
+        if _cfg_enabled(corrective_cfg, "enabled", default=False):
+            corrective_key = str(_cfg_get(corrective_cfg, "key", "corrective_loss"))
+            delta_norm_weight = float(_cfg_get(corrective_cfg, "delta_norm_weight", 1.0))
+            correction_mask_weight = float(_cfg_get(corrective_cfg, "correction_mask_weight", 1.0))
+            region_prior_weight = float(_cfg_get(corrective_cfg, "region_prior_weight", 0.5))
+
+            delta_pred = self.corrective_delta_head(pooled_hidden).squeeze(-1)
+            region_logits = self.corrective_region_head(pooled_hidden)
+            corrective_loss = action_loss.new_zeros(())
+            target_count = 0
+
+            if targets["delta_mask"].any():
+                delta_mask = targets["delta_mask"]
+                corrective_loss = corrective_loss + delta_norm_weight * F.mse_loss(
+                    delta_pred[delta_mask],
+                    targets["delta_action_norm"][delta_mask],
+                )
+                target_count += int(delta_mask.sum().item())
+
+            if targets["correction_mask_mask"].any():
+                correction_mask = targets["correction_mask_mask"]
+                corrective_loss = corrective_loss + correction_mask_weight * F.binary_cross_entropy_with_logits(
+                    region_logits[correction_mask],
+                    targets["correction_mask"][correction_mask].clamp(0.0, 1.0),
+                )
+                target_count += int(correction_mask.sum().item())
+
+            if targets["region_prior_mask"].any():
+                region_mask = targets["region_prior_mask"]
+                region_prob = torch.sigmoid(region_logits[region_mask])
+                corrective_loss = corrective_loss + region_prior_weight * F.mse_loss(
+                    region_prob,
+                    targets["region_prior"][region_mask].clamp(0.0, 1.0),
+                )
+                target_count += int(region_mask.sum().item())
+
+            output_dict[corrective_key] = corrective_loss
+            debug_metrics["debug/corrective_loss_target_count"] = float(target_count)
+
+        return output_dict, debug_metrics
         
 
     def forward(
@@ -148,16 +268,15 @@ class Qwen_GR00T(baseframework):
 
 
         output_dict = {"action_loss": action_loss}
-        hook_cfg = _cfg_get(getattr(self.config, "trainer", None), "optional_loss_hooks", None)
-        if _cfg_enabled(hook_cfg, "enabled", default=False):
-            a_cfg = _cfg_get(hook_cfg, "a_loss", None)
-            if _cfg_enabled(a_cfg, "enabled", default=False):
-                a_key = str(_cfg_get(a_cfg, "key", "a_loss"))
-                output_dict[a_key] = action_loss.new_zeros(())
-            corrective_cfg = _cfg_get(hook_cfg, "corrective_loss", None)
-            if _cfg_enabled(corrective_cfg, "enabled", default=False):
-                corrective_key = str(_cfg_get(corrective_cfg, "key", "corrective_loss"))
-                output_dict[corrective_key] = action_loss.new_zeros(())
+        hook_output_dict, hook_debug_metrics = self._compute_optional_hook_outputs(
+            examples=examples,
+            pooled_hidden=last_hidden.mean(dim=1),
+            action_loss=action_loss,
+        )
+        if hook_output_dict:
+            output_dict.update(hook_output_dict)
+        if hook_debug_metrics:
+            output_dict["debug_metrics"] = hook_debug_metrics
 
         return output_dict
 

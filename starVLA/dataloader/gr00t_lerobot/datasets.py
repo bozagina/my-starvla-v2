@@ -26,6 +26,7 @@ See `scripts/load_dataset.py` for examples on how to use these datasets.
 import os
 import hashlib
 import json, torch
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Sequence
@@ -1458,6 +1459,68 @@ def _cfg_enabled(cfg, key: str, default: bool = False) -> bool:
     return bool(value)
 
 
+_VERSIONED_DATASET_RE = re.compile(r"^(?P<prefix>.+?)_\d+\.\d+\.\d+_lerobot$")
+
+
+def _safe_int(value, default=None):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _dataset_name_aliases(dataset_name: str) -> list[str]:
+    """Create a small alias set so correction records can match minor naming variants."""
+    raw = str(dataset_name)
+    aliases = {raw}
+    basename = Path(raw).name
+    aliases.add(basename)
+
+    match = _VERSIONED_DATASET_RE.match(basename)
+    if match is not None:
+        aliases.add(match.group("prefix"))
+    if basename.endswith("_lerobot"):
+        aliases.add(basename[: -len("_lerobot")])
+    return [alias for alias in aliases if alias]
+
+
+def _load_correction_supervision_index(jsonl_path: Path) -> tuple[dict[tuple[str, int, int], dict], dict]:
+    """Load correction-supervision records keyed by (dataset_name, trajectory_id, sample_step)."""
+    index: dict[tuple[str, int, int], dict] = {}
+    stats = {"rows": 0, "indexed": 0, "duplicates": 0, "invalid": 0}
+
+    with open(jsonl_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            stats["rows"] += 1
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                stats["invalid"] += 1
+                continue
+
+            meta = record.get("meta")
+            if not isinstance(meta, dict):
+                stats["invalid"] += 1
+                continue
+
+            dataset_name = str(meta.get("dataset_name", "")).strip()
+            trajectory_id = _safe_int(meta.get("trajectory_id"))
+            sample_step = _safe_int(meta.get("sample_step"))
+            if not dataset_name or trajectory_id is None or sample_step is None:
+                stats["invalid"] += 1
+                continue
+
+            key = (dataset_name, trajectory_id, sample_step)
+            if key in index:
+                stats["duplicates"] += 1
+            index[key] = record
+            stats["indexed"] += 1
+    return index, stats
+
+
 def build_shared_vla_sample(
     *,
     images,
@@ -1546,6 +1609,11 @@ class LeRobotMixtureDataset(Dataset):
         self.seed = seed
         self.mode = mode
         self.data_cfg = kwargs["data_cfg"] if "data_cfg" in kwargs else None
+        self._correction_supervision_enabled = False
+        self._correction_supervision_required = False
+        self._correction_supervision_warned_miss = False
+        self._correction_supervision_index: dict[tuple[str, int, int], dict] = {}
+        self._init_correction_supervision()
 
         # Set properties for sampling
 
@@ -1617,6 +1685,120 @@ class LeRobotMixtureDataset(Dataset):
         self.set_epoch(0)
 
         self.update_metadata(metadata_config)
+
+    def _init_correction_supervision(self) -> None:
+        cfg = self.data_cfg
+        jsonl_path = ""
+        if cfg is not None:
+            jsonl_path = str(cfg.get("correction_dataset_jsonl", "")).strip()
+        enabled = _cfg_enabled(cfg, "correction_supervision_enabled", default=False) or bool(jsonl_path)
+        required = _cfg_enabled(cfg, "correction_dataset_required", default=False)
+        self._correction_supervision_required = required
+
+        if not enabled:
+            return
+
+        if not jsonl_path:
+            msg = (
+                "correction supervision is enabled but "
+                "`datasets.vla_data.correction_dataset_jsonl` is empty."
+            )
+            if required:
+                raise ValueError(msg)
+            print(f"Warning: {msg} Disable correction supervision for this run.")
+            return
+
+        path = Path(jsonl_path).expanduser()
+        if not path.exists():
+            msg = f"correction supervision file not found: {path}"
+            if required:
+                raise FileNotFoundError(msg)
+            print(f"Warning: {msg}. Disable correction supervision for this run.")
+            return
+
+        index, stats = _load_correction_supervision_index(path)
+        if len(index) == 0:
+            msg = f"no valid correction records loaded from {path}"
+            if required:
+                raise ValueError(msg)
+            print(f"Warning: {msg}. Disable correction supervision for this run.")
+            return
+
+        self._correction_supervision_enabled = True
+        self._correction_supervision_index = index
+        print(
+            "Loaded correction supervision index:",
+            f"path={path}",
+            f"rows={stats['rows']}",
+            f"indexed={stats['indexed']}",
+            f"duplicates={stats['duplicates']}",
+            f"invalid={stats['invalid']}",
+        )
+
+    def _lookup_correction_record(self, dataset_name: str, trajectory_id: int, step_index: int) -> dict | None:
+        if not self._correction_supervision_enabled:
+            return None
+        trajectory_id = _safe_int(trajectory_id)
+        step_index = _safe_int(step_index)
+        if trajectory_id is None or step_index is None:
+            return None
+        for alias in _dataset_name_aliases(dataset_name):
+            key = (alias, trajectory_id, step_index)
+            if key in self._correction_supervision_index:
+                return self._correction_supervision_index[key]
+        return None
+
+    def _attach_correction_supervision(
+        self,
+        sample: dict,
+        *,
+        dataset_name: str,
+        trajectory_id: int,
+        step_index: int,
+    ) -> dict:
+        if not self._correction_supervision_enabled:
+            return sample
+
+        record = self._lookup_correction_record(
+            dataset_name=dataset_name,
+            trajectory_id=trajectory_id,
+            step_index=step_index,
+        )
+        if record is None:
+            if self._correction_supervision_required:
+                raise KeyError(
+                    "Missing correction supervision for "
+                    f"dataset={dataset_name}, trajectory_id={trajectory_id}, sample_step={step_index}."
+                )
+            if not self._correction_supervision_warned_miss:
+                print(
+                    "Warning: correction supervision miss detected. "
+                    "This run will continue without pseudo labels for unmatched samples."
+                )
+                self._correction_supervision_warned_miss = True
+            return sample
+
+        pseudo_labels = record.get("pseudo_labels")
+        if isinstance(pseudo_labels, dict):
+            sample["pseudo_labels"] = pseudo_labels
+
+        remaining_chunk = record.get("remaining_chunk")
+        if remaining_chunk is not None:
+            try:
+                remaining_chunk = np.asarray(remaining_chunk, dtype=np.float16)
+                if remaining_chunk.ndim == 2:
+                    sample["remaining_chunk"] = remaining_chunk
+            except Exception:
+                pass
+
+        if "meta" in sample and isinstance(sample["meta"], dict):
+            sample["meta"]["has_correction_supervision"] = True
+            record_meta = record.get("meta")
+            if isinstance(record_meta, dict) and "record_index" in record_meta:
+                record_index = _safe_int(record_meta.get("record_index"))
+                if record_index is not None:
+                    sample["meta"]["correction_record_index"] = record_index
+        return sample
 
     @property
     def dataset_lengths(self) -> np.ndarray:
@@ -1738,7 +1920,7 @@ class LeRobotMixtureDataset(Dataset):
                         state_values.append(data[state_key])
                     state = np.concatenate(state_values, axis=1).astype(np.float16)
 
-                return build_shared_vla_sample(
+                sample = build_shared_vla_sample(
                     images=all_images,
                     action_chunk=action,
                     language=language,
@@ -1751,6 +1933,13 @@ class LeRobotMixtureDataset(Dataset):
                     video_keys=dataset.modality_keys.get("video", []),
                     builder_enabled=shared_builder_enabled,
                 )
+                sample = self._attach_correction_supervision(
+                    sample,
+                    dataset_name=dataset.dataset_name,
+                    trajectory_id=trajectory_id,
+                    step_index=step,
+                )
+                return sample
                 
             except Exception as e:
                 last_exception = e
