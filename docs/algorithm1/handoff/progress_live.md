@@ -3599,3 +3599,35 @@ Copy this block for each new entry:
   - Push patch and rerun the same forward-only smoke command; confirm startup no longer fails on missing `mapanything_llava3d`.
 - Commit message:
   - `[ALG1-INFRA-20260406-004-OC] replace mapanything config dependency in Qwen action head path`
+
+## [2026-04-06 17:43:36 +08:00] ALG1-INFRA-20260406-004-OC guard pre-init dist calls in dataloader/trainer smoke path
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Fix runtime crash `Default process group has not been initialized` during dataset build and early trainer setup.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/dataloader/__init__.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/training/trainer_utils/trainer_tools.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Guarded dataloader statistics-save rank check with `dist.is_initialized()` fallback.
+    - Guarded `prepare_data` barrier in trainer (`dist.barrier()` only when distributed group is initialized).
+    - Guarded uninitialized rank checks in trainer utilities (`print_trainable_parameters` and `load_pretrained_backbones` logging branches).
+- Evidence:
+  - Commands:
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/dataloader/__init__.py /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py /Users/bazinga/code/my-starvla-v2/starVLA/training/trainer_utils/trainer_tools.py /Users/bazinga/code/my-starvla-v2/starVLA/model/modules/action_model/LayerwiseFM_ActionHeader.py`
+    - `rg -n "dist.get_rank|dist.barrier|dist.is_initialized" /Users/bazinga/code/my-starvla-v2/starVLA/dataloader/__init__.py /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py /Users/bazinga/code/my-starvla-v2/starVLA/training/trainer_utils/trainer_tools.py`
+  - Key outputs/metrics:
+    - `py_compile` passed after guard insertion.
+    - Source grep confirms all touched pre-init paths now check `dist.is_initialized()` before direct distributed API calls.
+- Decision:
+  - Keep guards minimal and local to smoke-critical path so distributed behavior remains unchanged when process group is actually initialized.
+- Risks/Notes:
+  - Log line `Failed to load dataset statistics ...` is non-fatal fallback behavior in this run and not the current hard-stop cause.
+- Next step:
+  - Pull latest commit on server and rerun forward-only smoke; verify process progresses beyond dataloader build into one full train step completion.
+- Commit message:
+  - `[ALG1-INFRA-20260406-004-OC] guard pre-init dist calls in dataloader and trainer smoke path`
