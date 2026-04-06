@@ -41,6 +41,21 @@ from starVLA.training.trainer_utils.trainer_tools import TrainerUtils
 from starVLA.training.trainer_utils.trainer_tools import build_param_lr_groups
 from starVLA.training.trainer_utils.config_tracker import wrap_config, AccessTrackedConfig
 
+
+def _ensure_single_process_dist_env_defaults():
+    """
+    Ensure DeepSpeed can initialize without MPI discovery for single-process local runs.
+    When required env vars are missing, DeepSpeed falls back to MPI probing (`mpi4py`),
+    which is not always available on training servers.
+    """
+    os.environ.setdefault("RANK", "0")
+    os.environ.setdefault("LOCAL_RANK", "0")
+    os.environ.setdefault("WORLD_SIZE", "1")
+    os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
+    os.environ.setdefault("MASTER_PORT", "29500")
+
+
+_ensure_single_process_dist_env_defaults()
 deepspeed_plugin = DeepSpeedPlugin()
 accelerator = Accelerator(deepspeed_plugin=deepspeed_plugin)
 accelerator.print(accelerator.state)

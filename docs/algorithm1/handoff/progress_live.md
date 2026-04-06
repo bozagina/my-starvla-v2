@@ -282,3 +282,32 @@ This file records session-level execution status for retrofit phases.
   - Push patch and rerun smoke; if shell continuation issue appears, rerun command with clean continuations.
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] guard trainer utils rank checks before dist init`
+
+## [2026-04-06 11:31:00 +08:00] ALG1-DATA-20260405-001-OC bypass deepspeed mpi4py dependency by setting single-process dist env defaults
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Resolve DeepSpeed init failure `ModuleNotFoundError: No module named 'mpi4py'` during single-process smoke.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `_ensure_single_process_dist_env_defaults()` before global Accelerator initialization.
+    - Function sets default env vars if absent: `RANK=0`, `LOCAL_RANK=0`, `WORLD_SIZE=1`, `MASTER_ADDR=127.0.0.1`, `MASTER_PORT=29500`.
+    - This prevents DeepSpeed from entering MPI auto-discovery path (which required `mpi4py`).
+- Evidence:
+  - Commands:
+    - traceback shows failure in `deepspeed/comm/comm.py -> mpi_discovery -> from mpi4py import MPI`.
+    - `/usr/bin/python3 -m py_compile starVLA/training/train_starvla.py`
+  - Key outputs/metrics:
+    - Syntax check passed for patched training entry file.
+- Decision:
+  - Keep DeepSpeed enabled for memory feasibility, but avoid MPI dependency by explicitly pinning single-process env defaults.
+- Risks/Notes:
+  - If user explicitly runs multi-process distributed launch, these defaults should be overridden by launcher-provided env values.
+- Next step:
+  - Push patch and rerun 20-step smoke with unchanged command line.
+- Commit message:
+  - `[ALG1-DATA-20260405-001-OC] set dist env defaults to avoid deepspeed mpi discovery`
