@@ -128,6 +128,13 @@ def _is_contract_forward_only(cfg) -> bool:
     return _cfg_enabled(contract_cfg, "forward_only", default=False)
 
 
+def _to_float_or_default(value, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
 def load_fast_tokenizer():
     fast_tokenizer = AutoProcessor.from_pretrained("physical-intelligence/fast", trust_remote_code=True)
     return fast_tokenizer
@@ -466,6 +473,9 @@ class VLATrainer(TrainerUtils):
         :return: Average metric score across the evaluation dataset.
         """
 
+        if step_metrics is None:
+            step_metrics = {}
+
         examples = self._get_next_batch()
         score = 0.0
         num_samples = len(examples)
@@ -474,6 +484,13 @@ class VLATrainer(TrainerUtils):
         output_dict = self.model.predict_action(
             examples=examples, use_ddim=True, num_ddim_steps=20
         )
+
+        # Optional debug channel for future A/corrective integration outputs.
+        hook_cfg = _cfg_get(getattr(self.config, "trainer", None), "optional_loss_hooks", None)
+        if _cfg_enabled(hook_cfg, "enabled", default=False) and isinstance(output_dict, dict):
+            for key in ("risk_score", "affected_region_prior", "dynamic_embedding"):
+                if key in output_dict:
+                    step_metrics[f"debug/eval_has_{key}"] = 1.0
 
         if self.accelerator.is_main_process:
             normalized_actions = output_dict["normalized_actions"]  # B, T, D
@@ -616,6 +633,56 @@ class VLATrainer(TrainerUtils):
             step_metrics["debug/shared_builder_contract_fail"] = 1.0
             raise ValueError("Shared-builder contract check failed: " + " | ".join(errors))
 
+    def _reduce_loss_value(self, value, reference_loss: torch.Tensor) -> torch.Tensor | None:
+        if value is None:
+            return None
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value, dtype=reference_loss.dtype, device=reference_loss.device)
+        if value.ndim > 0:
+            value = value.mean()
+        return value
+
+    def _apply_optional_loss_hooks(self, output_dict: dict, action_loss: torch.Tensor, step_metrics: dict) -> torch.Tensor:
+        total_loss = action_loss
+        action_item = float(action_loss.detach().item())
+        step_metrics["action_dit_loss"] = action_item
+        step_metrics["loss/action_dit"] = action_item
+
+        hook_cfg = _cfg_get(getattr(self.config, "trainer", None), "optional_loss_hooks", None)
+        hooks_enabled = _cfg_enabled(hook_cfg, "enabled", default=False)
+        step_metrics["debug/optional_loss_hooks_enabled"] = 1.0 if hooks_enabled else 0.0
+        if not hooks_enabled:
+            step_metrics["loss/total"] = action_item
+            return total_loss
+
+        hook_specs = (
+            ("a_loss", "loss/a_module"),
+            ("corrective_loss", "loss/corrective"),
+        )
+        for hook_name, metric_key in hook_specs:
+            hook_node = _cfg_get(hook_cfg, hook_name, None)
+            if not _cfg_enabled(hook_node, "enabled", default=False):
+                continue
+
+            output_key = str(_cfg_get(hook_node, "key", hook_name))
+            weight = _to_float_or_default(_cfg_get(hook_node, "weight", 1.0), 1.0)
+            raw_value = output_dict.get(output_key) if isinstance(output_dict, dict) else None
+            if raw_value is None:
+                step_metrics[f"debug/{hook_name}_missing"] = 1.0
+                continue
+
+            reduced_value = self._reduce_loss_value(raw_value, reference_loss=action_loss)
+            if reduced_value is None:
+                step_metrics[f"debug/{hook_name}_invalid"] = 1.0
+                continue
+
+            total_loss = total_loss + weight * reduced_value
+            step_metrics[metric_key] = float(reduced_value.detach().item())
+            step_metrics[f"{metric_key}_weight"] = float(weight)
+
+        step_metrics["loss/total"] = float(total_loss.detach().item())
+        return total_loss
+
     def _train_step(self, batch_vla, batch_vlm=None):
         """execute single training step"""
         step_metrics = {}
@@ -628,13 +695,14 @@ class VLATrainer(TrainerUtils):
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 output_dict = self.model.forward(batch_vla)
 
-                action_loss = output_dict["action_loss"]
-                total_loss = action_loss
+                action_loss = output_dict.get("action_loss") if isinstance(output_dict, dict) else None
+                if action_loss is None:
+                    raise KeyError("model.forward output must include `action_loss`.")
+                total_loss = self._apply_optional_loss_hooks(output_dict, action_loss, step_metrics)
 
             # Smoke mode: validate dataloader+model forward contract path without optimizer-state allocation.
             if forward_only:
                 step_metrics["debug/shared_builder_forward_only"] = 1.0
-                step_metrics["action_dit_loss"] = action_loss.item()
                 self.optimizer.zero_grad(set_to_none=True)
                 return step_metrics
 
@@ -649,7 +717,6 @@ class VLATrainer(TrainerUtils):
             self.optimizer.step()
             self.lr_scheduler.step()
 
-        step_metrics["action_dit_loss"] = action_loss.item()
         return step_metrics
 
     def _finalize_training(self):

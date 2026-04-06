@@ -528,3 +528,43 @@ This file records session-level execution status for retrofit phases.
   - Promote latest tmp commit to worktree and sync both branches to writable remote.
 - Commit message:
   - `[ALG1-INFRA-20260406-001-OC] calibrate pseudo-label trigger threshold to 0.15`
+
+## [2026-04-06 16:52:00 +08:00] ALG1-INFRA-20260406-002-OC implement P2 minimal trainer loss hooks for A/corrective
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Add minimal, config-gated trainer insertion points for future A/corrective losses while keeping default behavior unchanged.
+- Changes:
+  - Files:
+    - `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/starVLA/training/train_starvla.py`
+    - `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/starVLA/config/training/starvla_cotrain_oxe.yaml`
+    - `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `trainer.optional_loss_hooks` config block (default disabled) with `a_loss` and `corrective_loss` sub-switches.
+    - Added `_apply_optional_loss_hooks` in trainer: `total_loss = action_loss + weighted_optional_losses` when enabled.
+    - Added missing-key diagnostics (`debug/a_loss_missing`, `debug/corrective_loss_missing`) to avoid crash when model has not produced these heads yet.
+    - Added optional eval debug flags for future outputs (`risk_score`, `affected_region_prior`, `dynamic_embedding`).
+    - Kept backward compatibility: default config still runs action-only loss path.
+- Evidence:
+  - Commands:
+    - `/2025233147/envs/llava3d_vla_train/bin/python -m py_compile starVLA/training/train_starvla.py`
+    - Lightweight on/off unit check for `_apply_optional_loss_hooks` using tensor mock inputs.
+    - Runtime smoke (1-step, forward-only):
+      - `accelerate launch --num_processes 1 -m starVLA.training.train_starvla ... --trainer.optional_loss_hooks.enabled true --trainer.optional_loss_hooks.a_loss.enabled true --trainer.optional_loss_hooks.corrective_loss.enabled true --trainer.shared_builder_contract_check.forward_only true --trainer.max_train_steps 1`
+  - Key outputs/metrics:
+    - Hook off: `HOOK_OFF_TOTAL=2.0`; hook on: `HOOK_ON_TOTAL=4.0` with expected keys present.
+    - Runtime smoke completed successfully (`run_id=p2_optional_loss_hooks_smoke_20260406`).
+    - Step metrics include:
+      - `debug/optional_loss_hooks_enabled=1`
+      - `debug/a_loss_missing=1`
+      - `debug/corrective_loss_missing=1`
+      - `loss/total` present and training exits normally.
+- Decision:
+  - P2 minimal trainer insertion accepted: default behavior preserved, hooks can be enabled without breaking current model outputs.
+- Risks/Notes:
+  - Current model forward still only outputs `action_loss`; A/corrective heads are not yet implemented, so missing-key debug flags are expected.
+- Next step:
+  - Enter P2 next substep: define minimal A-head output contract in model forward path (or adapter module) and replace missing-key diagnostics with real losses.
+- Commit message:
+  - `[ALG1-INFRA-20260406-002-OC] add config-gated P2 optional loss hooks in trainer`
