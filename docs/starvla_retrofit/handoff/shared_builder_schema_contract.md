@@ -68,16 +68,16 @@ Required meta keys:
 ## 5) Validator CLI
 
 Path:
-- `/Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py`
+- `<REPO_ROOT>/tools/handoff/validate_shared_builder_schema.py`
 
 Primary commands:
 
 ```bash
-python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --help
+python <REPO_ROOT>/tools/handoff/validate_shared_builder_schema.py --help
 ```
 
 ```bash
-python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py \
+python <REPO_ROOT>/tools/handoff/validate_shared_builder_schema.py \
   --payload-json /tmp/shared_payload.json \
   --mode auto \
   --expected-schema-version p1_shared_builder_v1 \
@@ -86,7 +86,7 @@ python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_s
 ```
 
 ```bash
-python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py \
+python <REPO_ROOT>/tools/handoff/validate_shared_builder_schema.py \
   --smoke-log /path/to/shared_builder_smoke.log \
   --mode auto
 ```
@@ -94,9 +94,9 @@ python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_s
 Demo payload generation:
 
 ```bash
-python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --demo shared_ok
-python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --demo legacy_ok
-python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py --demo shared_bad
+python <REPO_ROOT>/tools/handoff/validate_shared_builder_schema.py --demo shared_ok
+python <REPO_ROOT>/tools/handoff/validate_shared_builder_schema.py --demo legacy_ok
+python <REPO_ROOT>/tools/handoff/validate_shared_builder_schema.py --demo shared_bad
 ```
 
 ## 6) Mapping for T3 and T4

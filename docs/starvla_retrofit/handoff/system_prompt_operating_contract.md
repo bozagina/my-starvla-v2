@@ -24,18 +24,23 @@ Current VLM scope in this repository:
 
 Before coding:
 
-1. Read compact context first:
-   - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/context_pack_compact.md`
-2. Read deep task-book only if compact context is insufficient:
-   - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/star_vla改造与统一伪标签生成任务书.md`
-3. Check branch/dirty status.
-4. Confirm 3-level branch topology is available for current worktree:
+1. Resolve and lock repo context first (hard gate):
+   - `export REPO_ROOT="$(git rev-parse --show-toplevel)"`
+   - `export STARVLA_EXPECTED_REPO_ROOT="<absolute-target-repo-root>"`
+   - `export STARVLA_EXPECTED_VLM_SCOPE="qwen_only"`
+   - `bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root`
+2. Read compact context first:
+   - `<REPO_ROOT>/docs/starvla_retrofit/handoff/context_pack_compact.md`
+3. Read deep task-book only if compact context is insufficient:
+   - `<REPO_ROOT>/docs/starvla_retrofit/handoff/star_vla改造与统一伪标签生成任务书.md`
+4. Check branch/dirty status.
+5. Confirm 3-level branch topology is available for current worktree:
    - `codex/tmp-*` (task patch branch)
    - `codex/worktree-*` (stable worktree integration)
    - `codex/<final-target>` (milestone integration target)
-5. State current phase (`P0/P1/P2/P3`) and one-sentence goal.
-6. Create EXP_ID before first patch:
-   - `/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh start --module INFRA --owner OC --title "<task title>"`
+6. State current phase (`P0/P1/P2/P3`) and one-sentence goal.
+7. Create EXP_ID before first patch:
+   - `<REPO_ROOT>/tools/handoff/bootstrap_session.sh start --module INFRA --owner OC --title "<task title>"`
 
 ---
 
@@ -81,7 +86,7 @@ Always provide:
 
 Append major modifications to:
 
-- `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+- `<REPO_ROOT>/docs/algorithm1/handoff/progress_live.md`
 
 ---
 

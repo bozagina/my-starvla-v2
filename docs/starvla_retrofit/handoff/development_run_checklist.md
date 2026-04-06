@@ -6,16 +6,22 @@
 
 ## 1) 每次开发前（必须先做）
 
-1. 进入仓库：
+1. 锁定目标仓库（必须显式指定）：
 
 ```bash
-cd /Users/bazinga/code/my-starvla-v2
+export REPO_ROOT="$(git rev-parse --show-toplevel)"
+export STARVLA_EXPECTED_REPO_ROOT="<absolute-target-repo-root>"
+export STARVLA_EXPECTED_VLM_SCOPE="qwen_only"
+bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" \
+  --expect-root "$STARVLA_EXPECTED_REPO_ROOT" \
+  --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" \
+  --require-expected-root
 ```
 
 2. 一键 readiness（是否可开工）：
 
 ```bash
-bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh
+bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"
 ```
 
 通过标准：输出 `READY_TO_DEVELOP=YES`。
@@ -23,13 +29,13 @@ bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh
 3. 打印本流启动 prompt（给新会话/新线程）：
 
 ```bash
-/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh prompt-retrofit
+"$REPO_ROOT/tools/handoff/bootstrap_session.sh" prompt-retrofit
 ```
 
 4. 创建本轮 EXP_ID（首个代码改动前）：
 
 ```bash
-/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh start \
+"$REPO_ROOT/tools/handoff/bootstrap_session.sh" start \
   --module INFRA \
   --owner OC \
   --title "<one line task title>"
@@ -38,12 +44,12 @@ bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh
 5. 分支检查（确保在 `codex/tmp-*`）：
 
 ```bash
-git -C /Users/bazinga/code/my-starvla-v2 rev-parse --abbrev-ref HEAD
+git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD
 ```
 
 6. 并行线程开发时，先选线程文档再动手：
-- `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md`
-- `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/threads/`
+- `<REPO_ROOT>/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md`
+- `<REPO_ROOT>/docs/starvla_retrofit/handoff/threads/`
 
 ---
 
@@ -52,22 +58,28 @@ git -C /Users/bazinga/code/my-starvla-v2 rev-parse --abbrev-ref HEAD
 ```text
 请执行 StarVLA retrofit 开发流程，并严格遵守：
 
+0) 先锁定仓库身份：
+   - export REPO_ROOT="$(git rev-parse --show-toplevel)"
+   - export STARVLA_EXPECTED_REPO_ROOT="<absolute-target-repo-root>"
+   - export STARVLA_EXPECTED_VLM_SCOPE="qwen_only"
+   - bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root
+
 1) 先读取：
-   - /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/context_pack_compact.md
-   - /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md
-   - /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md
-   - /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/acceptance_deadlock_guard.md
-   - /Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md（仅尾部最近记录）
+   - <REPO_ROOT>/docs/starvla_retrofit/handoff/context_pack_compact.md
+   - <REPO_ROOT>/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md
+   - <REPO_ROOT>/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md
+   - <REPO_ROOT>/docs/starvla_retrofit/handoff/acceptance_deadlock_guard.md
+   - <REPO_ROOT>/docs/algorithm1/handoff/progress_live.md（仅尾部最近记录）
 
 2) 输出不超过8条当前状态与约束。
    - 并明确：当前仓库仅使用 Qwen2.5VL / Qwen3VL；MapAnything/LLaVA3D 已解耦，不作为当前实现依赖。
 
 3) 先执行并报告：
-   - bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh
-   - bash /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh
+   - bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"
+   - bash "$REPO_ROOT/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh"
 
 4) 在首个代码改动前创建 EXP_ID：
-   - /Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh start --module INFRA --owner OC --title "<task>"
+   - "$REPO_ROOT/tools/handoff/bootstrap_session.sh" start --module INFRA --owner OC --title "<task>"
 
 5) 严格按 gate 执行（P0->P1->P2->P3），不得跳 gate。
 
@@ -88,17 +100,17 @@ git -C /Users/bazinga/code/my-starvla-v2 rev-parse --abbrev-ref HEAD
 1. 拓扑与工作区检查：
 
 ```bash
-bash /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh
+bash "$REPO_ROOT/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh"
 ```
 
 2. 死锁风险检查（状态是否悬挂）：
 
 ```bash
-python /Users/bazinga/code/my-starvla-v2/tools/handoff/check_deadlock_risk.py --max-open-hours 24
+python "$REPO_ROOT/tools/handoff/check_deadlock_risk.py" --max-open-hours 24
 ```
 
 3. 重大修改后追加日志：
-- `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+- `<REPO_ROOT>/docs/algorithm1/handoff/progress_live.md`
 
 ---
 
@@ -107,7 +119,7 @@ python /Users/bazinga/code/my-starvla-v2/tools/handoff/check_deadlock_risk.py --
 1. 拉取远程 run 证据包：
 
 ```bash
-bash /Users/bazinga/code/my-starvla-v2/tools/fetch_latest_run_files.sh
+bash "$REPO_ROOT/tools/fetch_latest_run_files.sh"
 ```
 
 2. 验收最小证据集（缺一不可）：
@@ -120,15 +132,15 @@ bash /Users/bazinga/code/my-starvla-v2/tools/fetch_latest_run_files.sh
 3. Shared builder 样本契约校验（P2 起推荐执行）：
 
 Schema 文档：
-- `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/shared_builder_schema_contract.md`
+- `<REPO_ROOT>/docs/starvla_retrofit/handoff/shared_builder_schema_contract.md`
 
 Validator CLI：
-- `/Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py`
+- `<REPO_ROOT>/tools/handoff/validate_shared_builder_schema.py`
 
 示例：
 
 ```bash
-python /Users/bazinga/code/my-starvla-v2/tools/handoff/validate_shared_builder_schema.py \
+python "$REPO_ROOT/tools/handoff/validate_shared_builder_schema.py" \
   --smoke-log /path/to/shared_builder_smoke.log \
   --mode auto \
   --expected-schema-version p1_shared_builder_v1 \

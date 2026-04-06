@@ -84,12 +84,32 @@ class _QWen_VL_Interface(nn.Module):
 
         qwenvl_config = config.framework.get("qwenvl", {})
         model_id = qwenvl_config.get("base_vlm", "Qwen/Qwen2.5-VL-3B-Instruct")
+        requested_attn_impl = qwenvl_config.get("attn_implementation", "flash_attention_2")
+        model_kwargs = {"torch_dtype": "auto"}
+        if requested_attn_impl not in (None, ""):
+            model_kwargs["attn_implementation"] = requested_attn_impl
 
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            model_id,
-            attn_implementation="flash_attention_2",
-            torch_dtype="auto",
-        )
+        try:
+            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                model_id,
+                **model_kwargs,
+            )
+        except Exception as e:
+            # Common on server envs with flash-attn/PyTorch/CUDA ABI mismatch.
+            if str(requested_attn_impl).lower().startswith("flash"):
+                logger.warning(
+                    "Loading Qwen2.5-VL with attn_implementation=%s failed (%s). "
+                    "Falling back to `sdpa`.",
+                    requested_attn_impl,
+                    repr(e),
+                )
+                model_kwargs["attn_implementation"] = "sdpa"
+                model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                    model_id,
+                    **model_kwargs,
+                )
+            else:
+                raise
         processor = AutoProcessor.from_pretrained(model_id)
         processor.tokenizer.padding_side = "left"
 

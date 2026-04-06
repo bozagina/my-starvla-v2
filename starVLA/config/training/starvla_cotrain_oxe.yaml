@@ -7,6 +7,7 @@ wandb_project: llavavla
 is_debug: false
 
 framework:
+  # `QwenFM` is not registered in current qwen-only codebase; use implemented framework id.
   name: QwenGR00T
   qwenvl:
     base_vlm: ./playground/Pretrained_models/Qwen2.5-VL-3B-Instruct

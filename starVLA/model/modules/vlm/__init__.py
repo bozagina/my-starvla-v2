@@ -42,8 +42,13 @@ def get_vlm_model(config):
         from .Florence2 import _Florence_Interface
 
         return _Florence_Interface(config)
-    if "mapanything_llava3d" in vlm_name_l or "mapanythingllava3d" in vlm_name_l:
-        from .MapAnythingLlava3D import _MapAnythingLlava3D_Interface
+    elif "cosmos-reason2" in vlm_name.lower():
+        from .CosmosReason2 import _CosmosReason2_Interface
+        return _CosmosReason2_Interface(config)
+    else:
+        raise NotImplementedError(f"VLM model {vlm_name} not implemented")
+
+
 
         return _MapAnythingLlava3D_Interface(config)
     raise NotImplementedError(f"VLM model {vlm_name} not implemented")

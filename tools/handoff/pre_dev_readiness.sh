@@ -1,10 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/Users/bazinga/code/my-starvla-v2"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -n "${STARVLA_REPO_ROOT:-}" ]]; then
+  ROOT="$(cd "${STARVLA_REPO_ROOT}" && pwd -P)"
+elif git_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  ROOT="$(cd "$git_root" && pwd -P)"
+else
+  ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+fi
+
+REPO_GUARD="$ROOT/tools/handoff/ensure_repo_context.sh"
 PREFLIGHT="$ROOT/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh"
 DEADLOCK_CHECK="$ROOT/tools/handoff/check_deadlock_risk.py"
 MAX_OPEN_HOURS="${MAX_OPEN_HOURS:-24}"
+
+if command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="python3"
+else
+  PYTHON_BIN=""
+fi
 
 REQUIRED_FILES=(
   "$ROOT/docs/starvla_retrofit/handoff/context_pack_compact.md"
@@ -24,7 +41,27 @@ fail() { printf "[FAIL] %s\n" "$1"; overall_fail=1; }
 
 printf "=== Pre-Dev Readiness ===\n"
 printf "repo=%s\n" "$ROOT"
+printf "expected_repo=%s\n" "${STARVLA_EXPECTED_REPO_ROOT:-<unset>}"
+printf "expected_vlm_scope=%s\n" "${STARVLA_EXPECTED_VLM_SCOPE:-<unset>}"
 printf "max_open_hours=%s\n" "$MAX_OPEN_HOURS"
+
+guard_args=(--repo-root "$ROOT" --require-expected-root)
+if [[ -n "${STARVLA_EXPECTED_REPO_ROOT:-}" ]]; then
+  guard_args+=(--expect-root "$STARVLA_EXPECTED_REPO_ROOT")
+fi
+if [[ -n "${STARVLA_EXPECTED_VLM_SCOPE:-}" ]]; then
+  guard_args+=(--expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE")
+fi
+
+if [[ -f "$REPO_GUARD" ]]; then
+  if bash "$REPO_GUARD" "${guard_args[@]}"; then
+    pass "repo context guard passed"
+  else
+    fail "repo context guard failed"
+  fi
+else
+  fail "repo guard missing: $REPO_GUARD"
+fi
 
 for f in "${REQUIRED_FILES[@]}"; do
   if [[ -f "$f" ]]; then
@@ -45,10 +82,19 @@ else
 fi
 
 if [[ -f "$DEADLOCK_CHECK" ]]; then
-  if python "$DEADLOCK_CHECK" --max-open-hours "$MAX_OPEN_HOURS"; then
-    pass "deadlock risk check passed"
+  if [[ -z "$PYTHON_BIN" ]]; then
+    fail "python interpreter not found (need python or python3)"
   else
-    fail "deadlock risk check failed"
+    if "$PYTHON_BIN" "$DEADLOCK_CHECK" --max-open-hours "$MAX_OPEN_HOURS"; then
+      pass "deadlock risk check passed"
+    else
+      deadlock_code=$?
+      if [[ "$deadlock_code" -eq 1 ]]; then
+        warn "deadlock risk check has no EXP entries yet; initialize progress log via bootstrap_session.sh start"
+      else
+        fail "deadlock risk check failed"
+      fi
+    fi
   fi
 else
   fail "deadlock checker missing: $DEADLOCK_CHECK"

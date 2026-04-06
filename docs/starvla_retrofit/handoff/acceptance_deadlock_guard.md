@@ -59,16 +59,25 @@ If waiting for remote evidence exceeds one working day:
 
 ## 5) Operational Commands
 
+Lock repo context first:
+
+```bash
+export REPO_ROOT="$(git rev-parse --show-toplevel)"
+export STARVLA_EXPECTED_REPO_ROOT="<absolute-target-repo-root>"
+export STARVLA_EXPECTED_VLM_SCOPE="qwen_only"
+bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root
+```
+
 Preflight:
 
 ```bash
-bash /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh
+bash <REPO_ROOT>/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh
 ```
 
 Create session entry:
 
 ```bash
-/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh start \
+<REPO_ROOT>/tools/handoff/bootstrap_session.sh start \
   --module INFRA \
   --owner OC \
   --title "<task title>"
@@ -77,17 +86,17 @@ Create session entry:
 Fetch artifacts:
 
 ```bash
-bash /Users/bazinga/code/my-starvla-v2/tools/fetch_latest_run_files.sh
+bash <REPO_ROOT>/tools/fetch_latest_run_files.sh
 ```
 
 Check deadlock risk from progress statuses:
 
 ```bash
-python /Users/bazinga/code/my-starvla-v2/tools/handoff/check_deadlock_risk.py --max-open-hours 24
+python <REPO_ROOT>/tools/handoff/check_deadlock_risk.py --max-open-hours 24
 ```
 
 One-shot readiness check before starting development:
 
 ```bash
-bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh
+bash <REPO_ROOT>/tools/handoff/pre_dev_readiness.sh
 ```

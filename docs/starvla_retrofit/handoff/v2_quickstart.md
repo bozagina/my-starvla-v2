@@ -22,7 +22,10 @@ Active model scope for this repo stream:
 ## 1) Daily Start
 
 ```bash
-cd /Users/bazinga/code/my-starvla-v2
+export REPO_ROOT="$(git rev-parse --show-toplevel)"
+export STARVLA_EXPECTED_REPO_ROOT="<absolute-target-repo-root>"
+export STARVLA_EXPECTED_VLM_SCOPE="qwen_only"
+bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root
 git fetch origin
 git switch codex/worktree-starvla-v2-mainline
 git merge --ff-only origin/main
@@ -59,10 +62,10 @@ git merge --no-ff codex/worktree-starvla-v2-mainline
 
 ## 5) Required Docs for This Stream
 
-1. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/retrofit_prompt_and_branch_strategy.md`
-2. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md`
-3. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/star_vla改造与统一伪标签生成任务书.md`
-4. `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
-5. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/development_run_checklist.md`
-6. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md`
-7. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/ALG1-INFRA-20260403-006-OC__qwen_only_prompt_system_cleanup_audit.md`
+1. `<REPO_ROOT>/docs/starvla_retrofit/handoff/retrofit_prompt_and_branch_strategy.md`
+2. `<REPO_ROOT>/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md`
+3. `<REPO_ROOT>/docs/starvla_retrofit/handoff/star_vla改造与统一伪标签生成任务书.md`
+4. `<REPO_ROOT>/docs/algorithm1/handoff/progress_live.md`
+5. `<REPO_ROOT>/docs/starvla_retrofit/handoff/development_run_checklist.md`
+6. `<REPO_ROOT>/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md`
+7. `<REPO_ROOT>/docs/starvla_retrofit/handoff/ALG1-INFRA-20260403-006-OC__qwen_only_prompt_system_cleanup_audit.md`

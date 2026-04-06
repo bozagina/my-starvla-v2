@@ -7,6 +7,14 @@ LEGACY_PROMPT_DOC="$ROOT/docs/algorithm1/handoff/new_chat_bootstrap_command.md"
 RETROFIT_PROMPT_DOC="$ROOT/docs/starvla_retrofit/handoff/new_chat_bootstrap_compact.md"
 PROMPT_DOC="$RETROFIT_PROMPT_DOC"
 PROGRESS_TOOL="$ROOT/tools/handoff/new_progress_entry.py"
+REPO_GUARD="$ROOT/tools/handoff/ensure_repo_context.sh"
+if command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="python3"
+else
+  PYTHON_BIN=""
+fi
 
 usage() {
   cat <<'EOF'
@@ -22,6 +30,7 @@ Usage:
 
   bootstrap_session.sh start --module <MASK|FBLOSS|CFG|DIAG|DATA|INFRA|EVAL> [--owner <TAG>] [--title <TEXT>]
       Create a standardized IN_PROGRESS progress entry (EXP_ID) for this session.
+      Requires STARVLA_EXPECTED_REPO_ROOT (or --expect-root via repo guard env contract).
 
   bootstrap_session.sh help
 EOF
@@ -34,6 +43,23 @@ print_prompt() {
     exit 1
   fi
   awk '/^```text$/{flag=1;next}/^```$/{if(flag){exit}}flag' "$prompt_doc"
+}
+
+run_repo_guard() {
+  local guard_args=(--repo-root "$ROOT" --require-expected-root)
+  if [[ -n "${STARVLA_EXPECTED_REPO_ROOT:-}" ]]; then
+    guard_args+=(--expect-root "$STARVLA_EXPECTED_REPO_ROOT")
+  fi
+  if [[ -n "${STARVLA_EXPECTED_VLM_SCOPE:-}" ]]; then
+    guard_args+=(--expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE")
+  fi
+
+  if [[ ! -f "$REPO_GUARD" ]]; then
+    echo "Repo guard not found: $REPO_GUARD" >&2
+    exit 2
+  fi
+
+  bash "$REPO_GUARD" "${guard_args[@]}"
 }
 
 start_session() {
@@ -69,7 +95,13 @@ start_session() {
     exit 1
   fi
 
-  python "$PROGRESS_TOOL" --module "$module" --owner "$owner" --title "$title"
+  if [[ -z "$PYTHON_BIN" ]]; then
+    echo "python interpreter not found (need python or python3)" >&2
+    exit 2
+  fi
+
+  run_repo_guard
+  "$PYTHON_BIN" "$PROGRESS_TOOL" --module "$module" --owner "$owner" --title "$title"
 }
 
 cmd="${1:-help}"

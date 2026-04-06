@@ -3,11 +3,14 @@ import os
 from accelerate.logging import get_logger
 import numpy as np
 from torch.utils.data import DataLoader
-import numpy as np
 import torch.distributed as dist
 from pathlib import Path
 
 logger = get_logger(__name__)
+
+
+def _dist_initialized() -> bool:
+    return dist.is_available() and dist.is_initialized()
 
 
 def _inject_vla_builder_settings(cfg, vla_dataset_cfg):
@@ -74,8 +77,7 @@ def build_dataloader(cfg, dataset_py="lerobot_datasets_oxe"): # TODO now here on
             num_workers=4,
             # shuffle=True
         )        
-        if dist.get_rank() == 0: 
-            
+        if (not _dist_initialized()) or dist.get_rank() == 0:
             output_dir = Path(cfg.output_dir)
             vla_dataset.save_dataset_statistics(output_dir / "dataset_statistics.json")
         return vla_train_dataloader

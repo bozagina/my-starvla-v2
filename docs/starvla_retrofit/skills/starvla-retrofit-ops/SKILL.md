@@ -12,6 +12,11 @@ Use this skill to run StarVLA retrofit work with minimal context cost, reproduci
 ## Workflow
 
 1. Run preflight.
+- Lock target repo identity first:
+  - export `REPO_ROOT="$(git rev-parse --show-toplevel)"`
+  - export `STARVLA_EXPECTED_REPO_ROOT="<absolute-target-repo-root>"`
+  - export `STARVLA_EXPECTED_VLM_SCOPE="qwen_only"`
+  - run `tools/handoff/ensure_repo_context.sh --expect-root ... --expect-vlm-scope qwen_only --require-expected-root`
 - Check branch and worktree cleanliness.
 - Confirm `tmp -> worktree -> final` topology exists.
 - Create EXP_ID before first patch.
@@ -49,7 +54,7 @@ Use this skill to run StarVLA retrofit work with minimal context cost, reproduci
 Create EXP_ID:
 
 ```bash
-/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh start \
+"$REPO_ROOT/tools/handoff/bootstrap_session.sh" start \
   --module INFRA \
   --owner OC \
   --title "<one line title>"
@@ -58,7 +63,7 @@ Create EXP_ID:
 Run preflight helper:
 
 ```bash
-bash /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh
+bash "$REPO_ROOT/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh"
 ```
 
 ## References
