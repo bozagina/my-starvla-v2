@@ -3569,3 +3569,33 @@ Copy this block for each new entry:
   - Run remote smoke with `--trainer.smoke_forward_only true` plus optional hook flags, and verify `debug/smoke_forward_only=1.0` + hook metrics present.
 - Commit message:
   - `[ALG1-INFRA-20260406-003-OC] add forward-only smoke mode to bypass optimizer OOM`
+
+## [2026-04-06 17:36:43 +08:00] ALG1-INFRA-20260406-004-OC replace mapanything config dependency in Qwen action head path
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Fix PI smoke crash caused by legacy `mapanything_llava3d` config hard dependency inside layerwise action head.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/modules/action_model/LayerwiseFM_ActionHeader.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `_resolve_vlm_shape_cfg(global_config)` helper to resolve VLM dims/layer count with `framework.qwenvl` first, then legacy `framework.mapanything_llava3d` fallback.
+    - Replaced direct reads of `global_config.framework.mapanything_llava3d.{num_vl_layers,vl_hidden_dim}` in `LayerwiseFlowmatchingActionHead.__init__` with resolved values.
+    - Extended init log to include selected `vl_scope` for runtime traceability.
+- Evidence:
+  - Commands:
+    - `rg -n "mapanything_llava3d|_resolve_vlm_shape_cfg|vl_scope" /Users/bazinga/code/my-starvla-v2/starVLA/model/modules/action_model/LayerwiseFM_ActionHeader.py`
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/model/modules/action_model/LayerwiseFM_ActionHeader.py /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+  - Key outputs/metrics:
+    - Source grep confirms layerwise action head no longer hardcodes legacy config path for core VLM shape reads.
+    - `py_compile` passed for modified file set.
+- Decision:
+  - Keep backward compatibility for legacy config while removing hard failure on Qwen-only config files.
+- Risks/Notes:
+  - This fix addresses the shown crash path; remaining runtime checks still depend on remote environment packages/data.
+- Next step:
+  - Push patch and rerun the same forward-only smoke command; confirm startup no longer fails on missing `mapanything_llava3d`.
+- Commit message:
+  - `[ALG1-INFRA-20260406-004-OC] replace mapanything config dependency in Qwen action head path`
