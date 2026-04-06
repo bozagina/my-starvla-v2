@@ -3719,6 +3719,7 @@ Copy this block for each new entry:
     - Added optional correction-supervision index in LeRobot dataloader:
       - configurable by `datasets.vla_data.correction_supervision_enabled` + `correction_dataset_jsonl`.
       - matches records by `(dataset_name, trajectory_id, sample_step)` and attaches `pseudo_labels` / `remaining_chunk` onto runtime samples.
+      - supports optional `correction_supervision_filter_to_index` to sample only matched correction steps during smoke verification.
     - Extended `starvla_train_pi.yaml` with new optional data/hook weights (default off / backward-compatible).
 - Evidence:
   - Commands:

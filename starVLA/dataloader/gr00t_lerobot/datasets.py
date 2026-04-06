@@ -1612,7 +1612,9 @@ class LeRobotMixtureDataset(Dataset):
         self._correction_supervision_enabled = False
         self._correction_supervision_required = False
         self._correction_supervision_warned_miss = False
+        self._correction_supervision_filter_to_index = False
         self._correction_supervision_index: dict[tuple[str, int, int], dict] = {}
+        self._correction_steps_by_dataset_index: dict[int, list[tuple[int, int]]] = {}
         self._init_correction_supervision()
 
         # Set properties for sampling
@@ -1693,7 +1695,9 @@ class LeRobotMixtureDataset(Dataset):
             jsonl_path = str(cfg.get("correction_dataset_jsonl", "")).strip()
         enabled = _cfg_enabled(cfg, "correction_supervision_enabled", default=False) or bool(jsonl_path)
         required = _cfg_enabled(cfg, "correction_dataset_required", default=False)
+        filter_to_index = _cfg_enabled(cfg, "correction_supervision_filter_to_index", default=False)
         self._correction_supervision_required = required
+        self._correction_supervision_filter_to_index = filter_to_index
 
         if not enabled:
             return
@@ -1726,6 +1730,8 @@ class LeRobotMixtureDataset(Dataset):
 
         self._correction_supervision_enabled = True
         self._correction_supervision_index = index
+        if self._correction_supervision_filter_to_index:
+            self._build_correction_steps_by_dataset_index()
         print(
             "Loaded correction supervision index:",
             f"path={path}",
@@ -1733,7 +1739,35 @@ class LeRobotMixtureDataset(Dataset):
             f"indexed={stats['indexed']}",
             f"duplicates={stats['duplicates']}",
             f"invalid={stats['invalid']}",
+            f"filter_to_index={self._correction_supervision_filter_to_index}",
         )
+
+    def _build_correction_steps_by_dataset_index(self) -> None:
+        dataset_to_steps: dict[str, list[tuple[int, int]]] = defaultdict(list)
+        for dataset_name, trajectory_id, sample_step in self._correction_supervision_index:
+            dataset_to_steps[dataset_name].append((trajectory_id, sample_step))
+
+        self._correction_steps_by_dataset_index = {}
+        for dataset_index, dataset in enumerate(self.datasets):
+            matched_steps: list[tuple[int, int]] = []
+            for alias in _dataset_name_aliases(dataset.dataset_name):
+                matched_steps.extend(dataset_to_steps.get(alias, []))
+
+            if not matched_steps:
+                continue
+
+            # Deduplicate and keep only valid (trajectory_id, step) pairs that exist in this dataset.
+            all_steps_set = set(dataset.all_steps)
+            unique_steps = []
+            seen = set()
+            for step in matched_steps:
+                if step in seen:
+                    continue
+                seen.add(step)
+                if step in all_steps_set:
+                    unique_steps.append(step)
+            if unique_steps:
+                self._correction_steps_by_dataset_index[dataset_index] = unique_steps
 
     def _lookup_correction_record(self, dataset_name: str, trajectory_id: int, step_index: int) -> dict | None:
         if not self._correction_supervision_enabled:
@@ -1848,8 +1882,21 @@ class LeRobotMixtureDataset(Dataset):
         rng = np.random.default_rng(seed)
 
         # Sample dataset
-        dataset_index = rng.choice(len(self.datasets), p=self.dataset_sampling_weights)
+        if self._correction_supervision_filter_to_index and self._correction_steps_by_dataset_index:
+            candidate_dataset_indices = sorted(self._correction_steps_by_dataset_index.keys())
+            candidate_weights = self.dataset_sampling_weights[candidate_dataset_indices]
+            candidate_weights = candidate_weights / candidate_weights.sum()
+            dataset_index = int(rng.choice(candidate_dataset_indices, p=candidate_weights))
+        else:
+            dataset_index = int(rng.choice(len(self.datasets), p=self.dataset_sampling_weights))
         dataset = self.datasets[dataset_index]
+
+        if self._correction_supervision_filter_to_index:
+            matched_steps = self._correction_steps_by_dataset_index.get(dataset_index, [])
+            if matched_steps:
+                matched_idx = int(rng.choice(len(matched_steps)))
+                trajectory_id, base_index = matched_steps[matched_idx]
+                return dataset, trajectory_id, base_index
 
         # Sample trajectory
         # trajectory_index = rng.choice(

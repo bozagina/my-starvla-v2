@@ -59,6 +59,7 @@ datasets:
     correction_supervision_enabled: false
     correction_dataset_jsonl: ""
     correction_dataset_required: false
+    correction_supervision_filter_to_index: false
 
 trainer:
   epochs: 100
