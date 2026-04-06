@@ -55,6 +55,10 @@ from accelerate.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _dist_initialized() -> bool:
+    return dist.is_available() and dist.is_initialized()
+
+
 def _cfg_get(cfg_obj, key: str, default=None):
     if cfg_obj is None:
         return default
@@ -142,7 +146,8 @@ def prepare_data(cfg, accelerator, output_dir) -> Tuple[DataLoader, DataLoader]:
     vla_train_dataloader = build_dataloader(cfg=cfg, dataset_py=cfg.datasets.vla_data.dataset_py)
 
     accelerator.dataloader_config.dispatch_batches = False
-    dist.barrier()
+    if _dist_initialized():
+        dist.barrier()
 
     return vla_train_dataloader
 
@@ -336,7 +341,7 @@ class VLATrainer(TrainerUtils):
     def _log_metrics(self, metrics):
         """record training metrics"""
         if self.completed_steps % self.config.trainer.logging_frequency == 0:
-            if dist.get_rank() == 0:
+            if self.accelerator.is_main_process:
                 # add learning rate 
                 metrics["learning_rate"] = self.lr_scheduler.get_last_lr()[0] # see lr group in yaml.trainer.learning_rate
 
@@ -456,7 +461,8 @@ class VLATrainer(TrainerUtils):
             step_metrics["mse_score"] = average_score
 
         del examples
-        dist.barrier()  # ensure all processes are synchronized
+        if _dist_initialized():
+            dist.barrier()  # ensure all processes are synchronized
         return step_metrics
 
     def _log_training_config(self):
@@ -667,8 +673,9 @@ def main(cfg) -> None:
 
     # And... we're done!
     logger.info("... and that's all, folks!")
-    dist.barrier()
-    dist.destroy_process_group()
+    if _dist_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

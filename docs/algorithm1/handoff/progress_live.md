@@ -218,3 +218,34 @@ This file records session-level execution status for retrofit phases.
   - Push patch to server tmp branch and rerun same accelerate smoke command (optionally set `--framework.qwenvl.attn_implementation sdpa`).
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] add qwen vl attn fallback from flash to sdpa for smoke reliability`
+
+## [2026-04-06 11:17:00 +08:00] ALG1-DATA-20260405-001-OC guard distributed calls before process-group init for single-process accelerate smoke
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Fix P3 smoke crash when `dist.get_rank()` is called before default process group init.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/dataloader/__init__.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `_dist_initialized()` helper in dataloader and trainer modules.
+    - Replaced unsafe `dist.get_rank()==0` check in dataloader statistics save path with guarded check.
+    - Guarded `dist.barrier()` in `prepare_data`, `eval_action_model`, and `main` teardown.
+    - Switched `_log_metrics` rank guard to `self.accelerator.is_main_process`.
+- Evidence:
+  - Commands:
+    - server log traceback showed crash at `starVLA/dataloader/__init__.py` `dist.get_rank()` with uninitialized process group.
+    - `/usr/bin/python3 -m py_compile starVLA/dataloader/__init__.py starVLA/training/train_starvla.py`
+  - Key outputs/metrics:
+    - Syntax check passed for patched files.
+- Decision:
+  - Keep distributed guards explicit to support both initialized and non-initialized accelerate startup paths.
+- Risks/Notes:
+  - User command currently uses `starvla_train_pi.yaml` while expected chunk length in flags is set to 16; this may trigger contract mismatch (PI default is typically 8).
+- Next step:
+  - Push patch and rerun smoke; if contract mismatch appears, align `expected_action_chunk_len` to config-derived chunk length.
+- Commit message:
+  - `[ALG1-DATA-20260405-001-OC] guard dist calls before init in dataloader/trainer smoke path`
