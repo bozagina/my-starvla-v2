@@ -3502,3 +3502,37 @@ Copy this block for each new entry:
   - Re-run deadlock risk checker and pre-dev readiness to confirm unblock.
 - Commit message:
   - `[ALG1-MASK-20260301-001-OC] administratively close stale blocked stream for readiness`
+
+## [2026-04-06 17:11:22 +08:00] ALG1-INFRA-20260406-002-OC revert optional hooks from oxe and move to train_pi config
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Remove ambiguity by keeping optional hook config only in the active PI training yaml and reverting it from OXE template.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_oxe.yaml`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi.yaml`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Reverted `trainer.optional_loss_hooks` block from `starvla_cotrain_oxe.yaml` to avoid mixing PI-specific retrofit config into OXE path.
+    - Added new tracked PI config `starvla_train_pi.yaml` and placed both `shared_builder_contract_check` + `optional_loss_hooks` blocks there (default-off).
+    - Kept key names and defaults aligned with trainer implementation (`a_loss`, `corrective_loss`, `strict_missing_key`).
+- Evidence:
+  - Commands:
+    - `git diff -- /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_cotrain_oxe.yaml`
+    - `git diff -- /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi.yaml`
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenGR00T.py`
+    - `python - <<'PY' ... yaml.safe_load(starvla_cotrain_oxe.yaml/starvla_train_pi.yaml) ... PY`
+  - Key outputs/metrics:
+    - OXE config no longer carries `optional_loss_hooks`.
+    - PI config now includes `optional_loss_hooks` and `shared_builder_contract_check` in trainer section.
+    - YAML parse check passed for both files (`YAML_OK`).
+- Decision:
+  - Use `starvla_train_pi.yaml` as the single config location for PI smoke/retrofit controls to prevent cross-config confusion.
+- Risks/Notes:
+  - `starVLA/config/` is globally ignored in `.gitignore`; this file must be staged with `git add -f`.
+- Next step:
+  - Commit and push this config realignment patch, then run remote smoke via `--config_yaml .../starvla_train_pi.yaml`.
+- Commit message:
+  - `[ALG1-INFRA-20260406-002-OC] revert optional hooks from oxe and move to train_pi config`
