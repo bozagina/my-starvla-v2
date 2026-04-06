@@ -373,3 +373,37 @@ This file records session-level execution status for retrofit phases.
   - Continue to next stage (pseudo-label construction / downstream pipeline integration).
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] record P3 forward-only contract smoke pass from remote logs`
+
+## [2026-04-06 12:01:00 +08:00] ALG1-DATA-20260405-001-OC scaffold minimal correction pseudo-label builder and shared-builder smoke validator
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Start next-stage dataset-builder work with a minimal executable pseudo-label pipeline and schema validator.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/dataset_builder/__init__.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/dataset_builder/sample_schema.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/dataset_builder/pseudo_label_utils.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/dataset_builder/build_correction_dataset.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/tools/handoff/validate_shared_builder_schema.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added correction dataset schema (`p1_correction_dataset_v1`) and strict entry validator.
+    - Added deterministic pseudo-label generator from action chunk deltas (`trigger_label`, `risk_score`, `affected_region_prior`, `correction_mask`).
+    - Added CLI builder to read shared-builder dataloader samples and export `correction_dataset.jsonl` + `summary.json`.
+    - Added shared-builder smoke log validator CLI (`tools/handoff/validate_shared_builder_schema.py`) for `SMOKE_RESULT_JSON_START/END` blocks.
+- Evidence:
+  - Commands:
+    - `/usr/bin/python3 -m py_compile ... dataset_builder/*.py tools/handoff/validate_shared_builder_schema.py`
+    - temporary smoke-log validation run returned `[PASS] validated 1 smoke block(s)`.
+  - Key outputs/metrics:
+    - New validator can verify schema version / shape / shared-vs-legacy mode constraints from smoke logs.
+- Decision:
+  - Move pseudo-label stage from docs-only to code-available baseline before full A/corrective trainer integration.
+- Risks/Notes:
+  - Local `/usr/bin/python3` missing `numpy` prevented executing full builder runtime test in this local environment; expected to run in server env.
+- Next step:
+  - Run server-side tiny builder smoke (`num_samples=8~32`) and validate output schema, then lock first correction dataset artifact path.
+- Commit message:
+  - `[ALG1-DATA-20260405-001-OC] add minimal correction pseudo-label builder and smoke schema validator`
