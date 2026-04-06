@@ -346,3 +346,30 @@ This file records session-level execution status for retrofit phases.
   - Push patch and rerun smoke with `--trainer.shared_builder_contract_check.forward_only true`.
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] add forward-only shared-builder smoke mode to bypass optimizer OOM`
+
+## [2026-04-06 11:47:00 +08:00] ALG1-DATA-20260405-001-OC confirm P3 shared-builder contract forward-only smoke pass from remote run logs
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Validate shared-builder contract gate under low-risk forward-only smoke path on authoritative server repo.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - No code changes in this entry; this is a gate result record based on remote run evidence.
+- Evidence:
+  - Commands:
+    - user-provided `accelerate launch` with `--trainer.shared_builder_contract_check.forward_only true`.
+  - Key outputs/metrics:
+    - `Total optimization steps = 5` completed to `100%`.
+    - `Training complete. Final model saved at results/Checkpoints/p3_contract_gate_smoke_20260406_forward_only/final_model`.
+    - W&B run synced successfully (`oi9pchji`).
+- Decision:
+  - P3 contract gate is accepted for forward-only smoke path.
+- Risks/Notes:
+  - Full backward+optimizer stability is not covered by forward-only smoke (previously blocked by OOM).
+- Next step:
+  - Continue to next stage (pseudo-label construction / downstream pipeline integration).
+- Commit message:
+  - `[ALG1-DATA-20260405-001-OC] record P3 forward-only contract smoke pass from remote logs`
