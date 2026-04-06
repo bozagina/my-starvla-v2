@@ -249,3 +249,36 @@ This file records session-level execution status for retrofit phases.
   - Push patch and rerun smoke; if contract mismatch appears, align `expected_action_chunk_len` to config-derived chunk length.
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] guard dist calls before init in dataloader/trainer smoke path`
+
+## [2026-04-06 11:23:00 +08:00] ALG1-DATA-20260405-001-OC patch trainer_utils distributed main-rank guards for pre-init safety
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Resolve next-stage crash in `TrainerUtils.print_trainable_parameters` caused by calling `dist.get_rank()` before process-group init.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/training/trainer_utils/trainer_tools.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `_dist_initialized()` and `_is_main_process()` helpers.
+    - Replaced all direct `dist.get_rank()` checks in this file with guarded `_is_main_process()` logic.
+    - Fixed bug `if dist.get_rank == 0` (function object comparison) to proper guarded main-process check.
+    - Updated `only_main_process` decorator to rely on `_is_main_process()`.
+- Evidence:
+  - Commands:
+    - traceback showed crash at `trainer_tools.py:201` in `print_trainable_parameters`.
+    - `/usr/bin/python3 -m py_compile starVLA/training/trainer_utils/trainer_tools.py`
+    - `rg -n "dist\.get_rank|dist\.is_initialized" starVLA/training/trainer_utils/trainer_tools.py`
+  - Key outputs/metrics:
+    - Syntax check passed.
+    - Only helper-level rank/init checks remain in file.
+- Decision:
+  - Consolidate rank checks into helper to prevent repeated pre-init crashes across trainer utilities.
+- Risks/Notes:
+  - User command line contains `--trainer.shared_builder_contract_check.expected_action_chunk_len 8 \ ` (note trailing space before `\`).
+  - In shell this can break line continuation; should be `... 8 \` with no trailing space.
+- Next step:
+  - Push patch and rerun smoke; if shell continuation issue appears, rerun command with clean continuations.
+- Commit message:
+  - `[ALG1-DATA-20260405-001-OC] guard trainer utils rank checks before dist init`
