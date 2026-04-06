@@ -3631,3 +3631,33 @@ Copy this block for each new entry:
   - Pull latest commit on server and rerun forward-only smoke; verify process progresses beyond dataloader build into one full train step completion.
 - Commit message:
   - `[ALG1-INFRA-20260406-004-OC] guard pre-init dist calls in dataloader and trainer smoke path`
+
+## [2026-04-06 17:48:53 +08:00] ALG1-INFRA-20260406-004-OC disable DeepSpeed MPI autodiscovery dependency for single-process smoke
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Remove `mpi4py` hard dependency from single-process DeepSpeed smoke startup path.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `_ensure_single_process_deepspeed_env()` helper that sets defaults for `DEEPSPEED_USE_MPI=0`, `RANK=0`, `WORLD_SIZE=1`, `LOCAL_RANK=0`, `MASTER_ADDR`, `MASTER_PORT`.
+    - Called helper before DeepSpeed plugin initialization in `build_accelerator(cfg)`.
+    - Uses `os.environ.setdefault(...)` so explicit multi-process launcher envs are not overridden.
+- Evidence:
+  - Commands:
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+    - `rg -n "_ensure_single_process_deepspeed_env|DEEPSPEED_USE_MPI|WORLD_SIZE|LOCAL_RANK|MASTER_PORT" /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+  - Key outputs/metrics:
+    - `py_compile` passed.
+    - Source grep confirms env bootstrap is wired before `DeepSpeedPlugin(...)` construction.
+- Decision:
+  - Keep DeepSpeed path enabled while eliminating fragile MPI autodiscovery requirement in 1-process smoke.
+- Risks/Notes:
+  - If cluster launcher pre-sets distributed envs, this patch does not override them (`setdefault` semantics).
+- Next step:
+  - Pull latest commit on server and rerun `smoke_forward_only`; verify no `ModuleNotFoundError: mpi4py`.
+- Commit message:
+  - `[ALG1-INFRA-20260406-004-OC] set single-process DeepSpeed env defaults to avoid mpi4py dependency`

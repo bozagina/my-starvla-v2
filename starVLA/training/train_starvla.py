@@ -125,11 +125,27 @@ def _shape_2d(value):
     return dims
 
 
+def _ensure_single_process_deepspeed_env():
+    """
+    Ensure DeepSpeed has basic rank envs in single-process smoke runs.
+    This avoids fallback MPI discovery (which requires `mpi4py`) when launcher
+    env variables are missing.
+    """
+    os.environ.setdefault("DEEPSPEED_USE_MPI", "0")
+    os.environ.setdefault("RANK", "0")
+    os.environ.setdefault("WORLD_SIZE", "1")
+    os.environ.setdefault("LOCAL_RANK", "0")
+    os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
+    os.environ.setdefault("MASTER_PORT", "29500")
+
+
 def build_accelerator(cfg) -> Accelerator:
     """Build accelerator with explicit gradient accumulation from config."""
     grad_accum_steps = int(getattr(cfg.trainer, "gradient_accumulation_steps", 1))
     if grad_accum_steps < 1:
         raise ValueError(f"Invalid gradient_accumulation_steps={grad_accum_steps}, must be >= 1")
+
+    _ensure_single_process_deepspeed_env()
 
     deepspeed_plugin = None
     try:
