@@ -493,3 +493,38 @@ This file records session-level execution status for retrofit phases.
   - Promote branch flow `tmp -> worktree`, then prepare integration checks for next gate.
 - Commit message:
   - `[ALG1-INFRA-20260406-001-OC] record 64-sample sanity pass for pseudo-label consistency fix`
+## [2026-04-06 14:26:00 +08:00] ALG1-INFRA-20260406-001-OC calibrate trigger threshold and set default to 0.15
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Reduce over-triggering risk in P1 pseudo labels by calibrating and updating trigger threshold.
+- Changes:
+  - Files:
+    - `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/starVLA/dataset_builder/pseudo_label_utils.py`
+    - `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Updated `DEFAULT_TRIGGER_THRESHOLD` from `0.1` to `0.15` in pseudo-label builder.
+- Evidence:
+  - Commands:
+    - 512-sample build run to collect risk distribution and scan thresholds.
+    - threshold scan on `correction_dataset.jsonl` for `0.10/0.12/0.15/0.18/0.20/0.25/0.30`.
+    - 128-sample rebuild after threshold update.
+  - Key outputs/metrics:
+    - On 512 samples (scan):
+      - `thr=0.10 -> pos_ratio=0.8691`
+      - `thr=0.12 -> pos_ratio=0.7500`
+      - `thr=0.15 -> pos_ratio=0.5977` (closest to target 0.6)
+      - `thr=0.18 -> pos_ratio=0.4688`
+    - After setting default to 0.15 (128-sample sanity):
+      - `trigger_distribution={0:53,1:75}` (pos_ratio=0.5859)
+      - `risk_zero_trigger_one=0`
+      - `mask_all_one=0`
+- Decision:
+  - Accept `0.15` as current default trigger threshold for P1 builder.
+- Risks/Notes:
+  - Threshold may still need retuning on larger or cross-domain mixtures.
+- Next step:
+  - Promote latest tmp commit to worktree and sync both branches to writable remote.
+- Commit message:
+  - `[ALG1-INFRA-20260406-001-OC] calibrate pseudo-label trigger threshold to 0.15`

@@ -7,7 +7,7 @@ import numpy as np
 # Zero-like risk floor used for deterministic consistency checks.
 DEFAULT_ZERO_EPS = 1e-8
 # Trigger threshold for correction branch activation.
-DEFAULT_TRIGGER_THRESHOLD = 0.1
+DEFAULT_TRIGGER_THRESHOLD = 0.15
 # Keep only higher-risk region as correction mask.
 DEFAULT_MASK_QUANTILE = 0.75
 # Avoid very small mask threshold when quantile is too low.
