@@ -115,6 +115,10 @@ def main() -> None:
     summary_path = output_dir / "summary.json"
 
     total = 0
+    trigger_pos = 0
+    trigger_neg = 0
+    risk_zero_trigger_one = 0
+
     with jsonl_path.open("w", encoding="utf-8") as f:
         for batch in dataloader:
             if not isinstance(batch, list):
@@ -124,6 +128,15 @@ def main() -> None:
                 errors = validate_correction_entry(entry)
                 if errors:
                     raise ValueError(f"schema validation failed at sample[{total}]: {errors}")
+
+                pseudo = entry["pseudo_labels"]
+                if pseudo["trigger_label"] == 1:
+                    trigger_pos += 1
+                else:
+                    trigger_neg += 1
+                if abs(float(pseudo["risk_score"])) <= 1e-8 and int(pseudo["trigger_label"]) == 1:
+                    risk_zero_trigger_one += 1
+
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
                 total += 1
                 if total >= args.num_samples:
@@ -134,7 +147,9 @@ def main() -> None:
     summary = {
         "schema_version": CORRECTION_SCHEMA_VERSION,
         "num_samples": total,
-        "output_jsonl": str(jsonl_path),
+        "output_jsonl": str(jsonl_path.resolve()),
+        "trigger_distribution": {"0": trigger_neg, "1": trigger_pos},
+        "risk_zero_trigger_one": risk_zero_trigger_one,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -142,4 +157,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

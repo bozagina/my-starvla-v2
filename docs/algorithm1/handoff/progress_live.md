@@ -407,3 +407,61 @@ This file records session-level execution status for retrofit phases.
   - Run server-side tiny builder smoke (`num_samples=8~32`) and validate output schema, then lock first correction dataset artifact path.
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] add minimal correction pseudo-label builder and smoke schema validator`
+
+## [2026-04-06 07:53:26 +00:00] ALG1-INFRA-20260406-001-OC fix pseudo-label zero-risk trigger consistency
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - ...
+- Changes:
+  - Files:
+    - `...`
+  - Code/Config summary:
+    - ...
+- Evidence:
+  - Commands:
+    - `...`
+  - Key outputs/metrics:
+    - ...
+- Decision:
+  - ...
+- Risks/Notes:
+  - ...
+- Next step:
+  - ...
+- Commit message:
+  - `[ALG1-INFRA-20260406-001-OC] fix pseudo-label zero-risk trigger consistency`
+
+## [2026-04-06 13:25:00 +08:00] ALG1-INFRA-20260406-001-OC fix pseudo-label consistency and degeneracy in P1 builder
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Fix P1 correction pseudo-label contradictions (`risk_score=0` but `trigger_label=1`) and reduce all-positive degeneracy.
+- Changes:
+  - Files:
+    - `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/starVLA/dataset_builder/pseudo_label_utils.py`
+    - `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/starVLA/dataset_builder/sample_schema.py`
+    - `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/starVLA/dataset_builder/build_correction_dataset.py`
+  - Code/Config summary:
+    - Added zero-risk hard guard: if `max(delta_action_norm) <= eps`, force `trigger=0`, `risk=0`, `mask=all-0`, `prior=all-0`.
+    - Switched risk norm to motion channels (`[:-1]`) to avoid binary gripper toggles dominating pseudo labels.
+    - Added trigger threshold (`risk >= 0.1`) and mask stabilization (`quantile + relative floor`, argmax fallback).
+    - Extended schema validator with `delta_action_norm` required key and consistency rules (`risk==0 => trigger/mask/prior zero`).
+    - Builder summary now writes absolute `output_jsonl` and includes quick trigger distribution + contradiction counter.
+- Evidence:
+  - Commands:
+    - `/2025233147/envs/llava3d_vla_train/bin/python -m py_compile starVLA/dataset_builder/pseudo_label_utils.py starVLA/dataset_builder/sample_schema.py starVLA/dataset_builder/build_correction_dataset.py`
+    - local replay check on provided `correction_dataset.jsonl` with patched pseudo-label logic.
+  - Key outputs/metrics:
+    - `py_compile` passed.
+    - Replay stats (N=16): `trigger={0:5,1:11}`, `risk0_trig1=0`, `mask_all_one=0`, `schema_err=0`.
+- Decision:
+  - Patch is valid for P1 sanity criteria: removes zero-risk contradiction and avoids all-one masks in provided sample set.
+- Risks/Notes:
+  - Trigger threshold `0.1` is heuristic; may need tuning on larger mixed datasets.
+- Next step:
+  - Run server-side tiny builder smoke (`num_samples=16~64`) and confirm output artifact stats before promoting to worktree/final.
+- Commit message:
+  - `[ALG1-INFRA-20260406-001-OC] fix pseudo-label zero-risk consistency and trigger/mask degeneracy`

@@ -6,10 +6,21 @@ from typing import Any
 
 
 CORRECTION_SCHEMA_VERSION = "p1_correction_dataset_v1"
+_ZERO_EPS = 1e-8
 
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_all_zero_binary(mask: list[int]) -> bool:
+    return all(v == 0 for v in mask)
+
+
+def _is_all_near_zero(values: list[Any], eps: float = _ZERO_EPS) -> bool:
+    if not all(_is_number(v) for v in values):
+        return False
+    return all(abs(float(v)) <= eps for v in values)
 
 
 def _validate_2d_list(name: str, value: Any, errors: list[str]) -> tuple[int, int] | None:
@@ -63,25 +74,35 @@ def validate_correction_entry(entry: dict[str, Any]) -> list[str]:
     if not isinstance(labels, dict):
         errors.append("`pseudo_labels` must be dict.")
     else:
-        for key in ["trigger_label", "risk_score", "affected_region_prior", "correction_mask"]:
+        for key in ["trigger_label", "risk_score", "affected_region_prior", "correction_mask", "delta_action_norm"]:
             if key not in labels:
                 errors.append(f"`pseudo_labels.{key}` is required.")
+
         trigger_label = labels.get("trigger_label")
         if trigger_label not in (0, 1):
             errors.append("`pseudo_labels.trigger_label` must be 0 or 1.")
+
         risk_score = labels.get("risk_score")
         if not _is_number(risk_score):
             errors.append("`pseudo_labels.risk_score` must be numeric.")
+
         prior = labels.get("affected_region_prior")
         if not isinstance(prior, list):
             errors.append("`pseudo_labels.affected_region_prior` must be list.")
         elif not all(_is_number(v) for v in prior):
             errors.append("`pseudo_labels.affected_region_prior` must be numeric list.")
+
         mask = labels.get("correction_mask")
         if not isinstance(mask, list):
             errors.append("`pseudo_labels.correction_mask` must be list.")
         elif not all(v in (0, 1) for v in mask):
             errors.append("`pseudo_labels.correction_mask` must contain only 0/1.")
+
+        delta_norm = labels.get("delta_action_norm")
+        if not isinstance(delta_norm, list):
+            errors.append("`pseudo_labels.delta_action_norm` must be list.")
+        elif not all(_is_number(v) for v in delta_norm):
+            errors.append("`pseudo_labels.delta_action_norm` must be numeric list.")
 
         if remaining_shape is not None and isinstance(prior, list) and len(prior) != remaining_shape[0]:
             errors.append(
@@ -92,6 +113,28 @@ def validate_correction_entry(entry: dict[str, Any]) -> list[str]:
             errors.append(
                 f"`pseudo_labels.correction_mask` length mismatch: got {len(mask)}, expected {remaining_shape[0]}"
             )
+        if remaining_shape is not None and isinstance(delta_norm, list) and len(delta_norm) != remaining_shape[0]:
+            errors.append(
+                f"`pseudo_labels.delta_action_norm` length mismatch: got {len(delta_norm)}, expected {remaining_shape[0]}"
+            )
+
+        # Consistency constraints:
+        # - risk == 0 => trigger == 0, mask all zero, prior all zero.
+        if _is_number(risk_score) and float(risk_score) <= _ZERO_EPS:
+            if trigger_label != 0:
+                errors.append("`pseudo_labels.trigger_label` must be 0 when `risk_score` is 0.")
+            if isinstance(mask, list) and not _is_all_zero_binary(mask):
+                errors.append("`pseudo_labels.correction_mask` must be all 0 when `risk_score` is 0.")
+            if isinstance(prior, list) and not _is_all_near_zero(prior):
+                errors.append("`pseudo_labels.affected_region_prior` must be all 0 when `risk_score` is 0.")
+
+        if trigger_label == 0:
+            if isinstance(mask, list) and not _is_all_zero_binary(mask):
+                errors.append("`pseudo_labels.correction_mask` must be all 0 when trigger_label=0.")
+
+        if trigger_label == 1:
+            if isinstance(mask, list) and _is_all_zero_binary(mask):
+                errors.append("`pseudo_labels.correction_mask` must include at least one 1 when trigger_label=1.")
 
     meta = entry.get("meta")
     if not isinstance(meta, dict):
@@ -111,4 +154,3 @@ def validate_correction_entry(entry: dict[str, Any]) -> list[str]:
                 )
 
     return errors
-
