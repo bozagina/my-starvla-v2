@@ -311,3 +311,38 @@ This file records session-level execution status for retrofit phases.
   - Push patch and rerun 20-step smoke with unchanged command line.
 - Commit message:
   - `[ALG1-DATA-20260405-001-OC] set dist env defaults to avoid deepspeed mpi discovery`
+
+## [2026-04-06 11:38:00 +08:00] ALG1-DATA-20260405-001-OC add forward-only contract smoke mode to avoid optimizer OOM in P3 gate
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Keep P3 contract smoke progressing when full training step OOM occurs during AdamW optimizer state updates.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2-authoritative/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `_is_contract_forward_only(cfg)` helper.
+    - Added smoke switches:
+      - `trainer.smoke_forward_only=true` or
+      - `trainer.shared_builder_contract_check.forward_only=true`
+    - In `_train_step`, when forward-only is enabled:
+      - run contract check + model forward
+      - record `action_dit_loss`
+      - skip `backward`, grad clip, `optimizer.step`, `lr_scheduler.step`
+      - emit metric `debug/shared_builder_forward_only=1.0`
+- Evidence:
+  - Commands:
+    - runtime traceback showed OOM in optimizer step (`_multi_tensor_adamw`) with ~127 GiB GPU used.
+    - `/usr/bin/python3 -m py_compile starVLA/training/train_starvla.py`
+  - Key outputs/metrics:
+    - Syntax check passed; forward-only toggles are present and discoverable in code.
+- Decision:
+  - Use forward-only mode for P3 gate smoke (contract path verification), and keep full-train path unchanged for real training.
+- Risks/Notes:
+  - Forward-only smoke validates contract and forward path, but does not validate backward/optimizer stability.
+- Next step:
+  - Push patch and rerun smoke with `--trainer.shared_builder_contract_check.forward_only true`.
+- Commit message:
+  - `[ALG1-DATA-20260405-001-OC] add forward-only shared-builder smoke mode to bypass optimizer OOM`

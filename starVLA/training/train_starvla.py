@@ -118,6 +118,16 @@ def _shape_2d(value):
     return dims
 
 
+def _is_contract_forward_only(cfg) -> bool:
+    trainer_cfg = getattr(cfg, "trainer", None)
+    # Global smoke switch.
+    if _cfg_enabled(trainer_cfg, "smoke_forward_only", default=False):
+        return True
+    # Contract-check local switch.
+    contract_cfg = _cfg_get(trainer_cfg, "shared_builder_contract_check", None)
+    return _cfg_enabled(contract_cfg, "forward_only", default=False)
+
+
 def load_fast_tokenizer():
     fast_tokenizer = AutoProcessor.from_pretrained("physical-intelligence/fast", trust_remote_code=True)
     return fast_tokenizer
@@ -609,6 +619,7 @@ class VLATrainer(TrainerUtils):
     def _train_step(self, batch_vla, batch_vlm=None):
         """execute single training step"""
         step_metrics = {}
+        forward_only = _is_contract_forward_only(self.config)
         with self.accelerator.accumulate(self.model):
             self._check_shared_builder_contract(batch_vla, step_metrics)
             self.optimizer.zero_grad()
@@ -619,6 +630,13 @@ class VLATrainer(TrainerUtils):
 
                 action_loss = output_dict["action_loss"]
                 total_loss = action_loss
+
+            # Smoke mode: validate dataloader+model forward contract path without optimizer-state allocation.
+            if forward_only:
+                step_metrics["debug/shared_builder_forward_only"] = 1.0
+                step_metrics["action_dit_loss"] = action_loss.item()
+                self.optimizer.zero_grad(set_to_none=True)
+                return step_metrics
 
             # VLA backward propagation
             self.accelerator.backward(total_loss)
