@@ -3536,3 +3536,36 @@ Copy this block for each new entry:
   - Commit and push this config realignment patch, then run remote smoke via `--config_yaml .../starvla_train_pi.yaml`.
 - Commit message:
   - `[ALG1-INFRA-20260406-002-OC] revert optional hooks from oxe and move to train_pi config`
+
+## [2026-04-06 17:25:12 +08:00] ALG1-INFRA-20260406-003-OC add forward-only smoke mode to bypass optimizer OOM
+
+- Owner: OC
+- Status: IN_PROGRESS
+- Objective:
+  - Unblock remote smoke validation under constrained GPU memory by adding an explicit forward-only mode that skips optimizer state allocation.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi.yaml`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added `trainer.smoke_forward_only` gate in `_train_step`; when enabled, trainer returns after forward/loss checks and does not call `backward` / `optimizer.step`.
+    - Added debug metric `debug/smoke_forward_only=1.0` to make smoke execution mode observable in `metrics.jsonl`/wandb.
+    - Set `smoke_forward_only: false` default in `starvla_train_pi.yaml` (behavior unchanged unless explicitly enabled).
+- Evidence:
+  - Commands:
+    - `python -m py_compile /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+    - `rg -n "smoke_forward_only|debug/smoke_forward_only|optional_loss_hooks" /Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi.yaml`
+    - `python - <<'PY' ... yaml.safe_load(starvla_train_pi.yaml) ... PY`
+  - Key outputs/metrics:
+    - `py_compile` passed.
+    - Source grep confirms forward-only gate and debug metric insertion at trainer path.
+    - YAML parse confirms `SMOKE_FLAG_DEFAULT False`.
+- Decision:
+  - Keep forward-only as smoke-only opt-in safety switch so full training path remains unchanged, while contract validation can proceed without optimizer OOM.
+- Risks/Notes:
+  - Forward-only smoke validates data/model contract and logging path, but does not validate optimizer update correctness.
+- Next step:
+  - Run remote smoke with `--trainer.smoke_forward_only true` plus optional hook flags, and verify `debug/smoke_forward_only=1.0` + hook metrics present.
+- Commit message:
+  - `[ALG1-INFRA-20260406-003-OC] add forward-only smoke mode to bypass optimizer OOM`

@@ -1167,6 +1167,12 @@ class VLATrainer(TrainerUtils):
                 self.optimizer.zero_grad()
                 return step_metrics
 
+            # Smoke-only fast path: validate forward/loss contract without optimizer state allocation.
+            if _cfg_enabled(getattr(self.config, "trainer", None), "smoke_forward_only", default=False):
+                step_metrics["debug/smoke_forward_only"] = 1.0
+                self.optimizer.zero_grad()
+                return step_metrics
+
             # VLA backward propagation
             self.accelerator.backward(total_loss)
 
