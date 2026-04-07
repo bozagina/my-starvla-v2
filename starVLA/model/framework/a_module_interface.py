@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 import torch
@@ -19,9 +20,12 @@ def _cfg_get(cfg_obj, key: str, default=None):
 
 def _safe_float(value: Any) -> float | None:
     try:
-        return float(value)
+        out = float(value)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(out):
+        return None
+    return out
 
 
 def _coerce_vector(value: Any, target_len: int) -> torch.Tensor | None:
@@ -34,6 +38,7 @@ def _coerce_vector(value: Any, target_len: int) -> torch.Tensor | None:
     if arr.numel() == 0:
         return None
     arr = arr.reshape(-1)
+    arr = torch.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
     if arr.numel() >= target_len:
         return arr[:target_len]
     padded = torch.zeros((target_len,), dtype=torch.float32)
@@ -132,16 +137,32 @@ class StandaloneAModuleInterface:
 
         any_signal = False
         fallback_used = 0
+        rows_with_payload = 0
+        rows_with_all_fields = 0
+        risk_found = 0
+        trigger_found = 0
+        delta_found = 0
+        region_found = 0
+        risk_sum = 0.0
+        delta_sum = 0.0
+        trigger_pos = 0
 
         for i, example in enumerate(examples):
             source = self._extract_source(example)
+            has_payload = bool(isinstance(source, dict) and len(source) > 0)
+            if has_payload:
+                rows_with_payload += 1
+            row_has_all_fields = True
 
             risk_value = _safe_float(source.get("risk_pred", source.get("risk_score")))
             if risk_value is not None:
                 risk_pred[i] = risk_value
                 any_signal = True
+                risk_found += 1
+                risk_sum += float(risk_value)
             else:
                 fallback_used += 1
+                row_has_all_fields = False
 
             trigger_logit_value = _safe_float(source.get("trigger_logit"))
             if trigger_logit_value is None:
@@ -152,8 +173,12 @@ class StandaloneAModuleInterface:
             if trigger_logit_value is not None:
                 trigger_logit[i] = trigger_logit_value
                 any_signal = True
+                trigger_found += 1
+                if float(trigger_logit_value) > 0.0:
+                    trigger_pos += 1
             else:
                 fallback_used += 1
+                row_has_all_fields = False
 
             delta_value = _safe_float(
                 source.get("delta_pred", source.get("delta_action_norm", source.get("delta_norm")))
@@ -161,8 +186,11 @@ class StandaloneAModuleInterface:
             if delta_value is not None:
                 delta_pred[i] = delta_value
                 any_signal = True
+                delta_found += 1
+                delta_sum += float(delta_value)
             else:
                 fallback_used += 1
+                row_has_all_fields = False
 
             region_vec = _coerce_vector(
                 source.get(
@@ -174,13 +202,29 @@ class StandaloneAModuleInterface:
             if region_vec is not None:
                 region_logits[i] = region_vec.to(device=device, dtype=dtype)
                 any_signal = True
+                region_found += 1
             else:
                 fallback_used += 1
+                row_has_all_fields = False
 
+            if row_has_all_fields:
+                rows_with_all_fields += 1
+
+        denom = max(1, batch_size)
+        trigger_rate_denom = max(1, trigger_found)
         debug_metrics = {
             "debug/a_module_mode_standalone": 1.0,
             "debug/a_module_external_signal_found": 1.0 if any_signal else 0.0,
             "debug/a_module_external_missing_fields": float(fallback_used),
+            "debug/a_module_external_rows_with_payload_ratio": float(rows_with_payload / denom),
+            "debug/a_module_external_rows_with_all_fields_ratio": float(rows_with_all_fields / denom),
+            "debug/a_module_external_risk_coverage": float(risk_found / denom),
+            "debug/a_module_external_trigger_coverage": float(trigger_found / denom),
+            "debug/a_module_external_delta_coverage": float(delta_found / denom),
+            "debug/a_module_external_region_coverage": float(region_found / denom),
+            "debug/a_module_external_risk_mean": float(risk_sum / max(1, risk_found)),
+            "debug/a_module_external_delta_mean": float(delta_sum / max(1, delta_found)),
+            "debug/a_module_external_trigger_pos_rate": float(trigger_pos / trigger_rate_denom),
         }
         return (
             AModulePredictions(
