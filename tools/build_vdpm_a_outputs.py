@@ -12,9 +12,29 @@ import numpy as np
 
 def _safe_float(value: Any) -> float | None:
     try:
-        return float(value)
+        out = float(value)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(out):
+        return None
+    return out
+
+
+def _reduce_vector_to_scalar(value: Any, mode: str = "max") -> float | None:
+    try:
+        arr = np.asarray(value, dtype=np.float32).reshape(-1)
+    except Exception:
+        return None
+    if arr.size == 0:
+        return None
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    if mode == "mean":
+        out = float(arr.mean())
+    else:
+        out = float(arr.max())
+    if not math.isfinite(out):
+        return None
+    return out
 
 
 def _coerce_vector(value: Any, target_len: int) -> np.ndarray | None:
@@ -27,6 +47,7 @@ def _coerce_vector(value: Any, target_len: int) -> np.ndarray | None:
     if arr.size == 0:
         return None
     arr = arr.reshape(-1)
+    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
     if arr.size >= target_len:
         return arr[:target_len]
     padded = np.zeros((target_len,), dtype=np.float32)
@@ -79,8 +100,12 @@ def _derive_dynamic_embedding(
 
     pseudo = record.get("pseudo_labels")
     if isinstance(pseudo, dict):
-        for key in ("risk_score", "trigger_label", "delta_action_norm"):
-            value = _safe_float(pseudo.get(key))
+        risk_score = _safe_float(pseudo.get("risk_score"))
+        trigger_label = _safe_float(pseudo.get("trigger_label"))
+        delta_norm = _safe_float(pseudo.get("delta_action_norm"))
+        if delta_norm is None:
+            delta_norm = _reduce_vector_to_scalar(pseudo.get("delta_action_norm"), mode="max")
+        for value in (risk_score, trigger_label, delta_norm):
             features.append(0.0 if value is None else float(value))
 
     if not features:
@@ -104,6 +129,8 @@ def _build_a_outputs_from_record(
 
     risk_pred = _safe_float(pseudo.get("risk_score"))
     if risk_pred is None:
+        risk_pred = _reduce_vector_to_scalar(pseudo.get("delta_action_norm"), mode="max")
+    if risk_pred is None:
         risk_pred = 0.0
 
     trigger_logit = _safe_float(pseudo.get("trigger_logit"))
@@ -115,7 +142,9 @@ def _build_a_outputs_from_record(
     if delta_pred is None:
         delta_pred = _safe_float(pseudo.get("delta_action_norm"))
     if delta_pred is None:
-        delta_pred = 0.0
+        delta_pred = _reduce_vector_to_scalar(pseudo.get("delta_action_norm"), mode="max")
+    if delta_pred is None:
+        delta_pred = float(risk_pred)
 
     chunk_len = 0
     remaining_chunk = record.get("remaining_chunk")
@@ -142,14 +171,15 @@ def _build_a_outputs_from_record(
             break
     if region_logits is None:
         region_logits = np.zeros((chunk_len,), dtype=np.float32)
+    region_logits = np.nan_to_num(region_logits, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
 
     return {
-        "version": "a_outputs_v1_placeholder",
-        "source": "heuristic_from_pseudo_labels",
+        "version": "a_outputs_v1_placeholder_fixed",
+        "source": "heuristic_from_pseudo_labels_fixed",
         "risk_pred": float(risk_pred),
         "trigger_logit": float(trigger_logit),
         "delta_pred": float(delta_pred),
-        "region_logits": region_logits.astype(np.float32).tolist(),
+        "region_logits": region_logits.tolist(),
         "dynamic_embedding": _derive_dynamic_embedding(record, dim=embedding_dim),
     }
 
@@ -172,7 +202,7 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         for rec in records:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.write(json.dumps(rec, ensure_ascii=False, allow_nan=False) + "\n")
 
 
 def parse_args() -> argparse.Namespace:
