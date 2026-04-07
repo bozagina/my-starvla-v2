@@ -49,6 +49,10 @@ framework:
       allow_pseudo_labels_fallback: false
       strict_missing: false
       fallback_to_lite: true
+      output_contract:
+        strict_shape: false
+        expected_region_len: null
+        expected_embedding_dim: 16
 
 datasets:
   vla_data:

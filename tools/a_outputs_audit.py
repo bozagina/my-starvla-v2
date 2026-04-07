@@ -59,6 +59,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-jsonl", required=True, help="Path to correction JSONL with a_outputs.")
     parser.add_argument("--max-print-bad", type=int, default=5, help="Max invalid rows to print.")
     parser.add_argument(
+        "--expected-region-len",
+        type=int,
+        default=None,
+        help="Optional expected length for a_outputs.region_logits.",
+    )
+    parser.add_argument(
+        "--expected-embedding-len",
+        type=int,
+        default=None,
+        help="Optional expected length for a_outputs.dynamic_embedding.",
+    )
+    parser.add_argument(
         "--require-a-outputs",
         action="store_true",
         help="Treat rows missing a_outputs as failure candidates.",
@@ -82,6 +94,8 @@ def main() -> None:
     rows_with_nonfinite = 0
     rows_trigger0_but_risk_positive = 0
     rows_trigger_sign_mismatch = 0
+    rows_region_len_mismatch = 0
+    rows_embedding_len_mismatch = 0
 
     bad_examples: list[tuple[int, str]] = []
     a_version_counter: Counter[str] = Counter()
@@ -151,6 +165,11 @@ def main() -> None:
                 row_errors.append(region_err)
             else:
                 region_lengths.append(float(len(region_logits)))
+                if args.expected_region_len is not None and len(region_logits) != int(args.expected_region_len):
+                    rows_region_len_mismatch += 1
+                    row_errors.append(
+                        f"region_logits len={len(region_logits)} != expected_region_len={int(args.expected_region_len)}"
+                    )
 
             dynamic_embedding = a_outputs.get("dynamic_embedding")
             embed_err = _check_vector("dynamic_embedding", dynamic_embedding)
@@ -158,6 +177,12 @@ def main() -> None:
                 row_errors.append(embed_err)
             else:
                 embedding_lengths.append(float(len(dynamic_embedding)))
+                if args.expected_embedding_len is not None and len(dynamic_embedding) != int(args.expected_embedding_len):
+                    rows_embedding_len_mismatch += 1
+                    row_errors.append(
+                        "dynamic_embedding len="
+                        f"{len(dynamic_embedding)} != expected_embedding_len={int(args.expected_embedding_len)}"
+                    )
 
             if trigger_logit is not None and trigger_label in (0, 1):
                 pred_label = 1 if trigger_logit > 0.0 else 0
@@ -183,6 +208,8 @@ def main() -> None:
         "rows_with_nonfinite_or_invalid": rows_with_nonfinite,
         "rows_trigger0_but_risk_positive": rows_trigger0_but_risk_positive,
         "rows_trigger_sign_mismatch": rows_trigger_sign_mismatch,
+        "rows_region_len_mismatch": rows_region_len_mismatch,
+        "rows_embedding_len_mismatch": rows_embedding_len_mismatch,
         "a_outputs_versions": dict(a_version_counter),
         "a_outputs_sources": dict(a_source_counter),
         "risk_pred_stats": _summary(risk_preds),
