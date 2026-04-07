@@ -43,6 +43,7 @@ def _cfg_enabled(cfg_obj, key: str, default: bool = False) -> bool:
     return bool(value)
 
 from starVLA.model.framework.base_framework import baseframework
+from starVLA.model.framework.a_module_interface import build_a_module_interface
 from starVLA.model.framework.optional_loss_utils import build_optional_hook_targets
 from starVLA.model.modules.vlm import get_vlm_model
 from starVLA.model.modules.action_model.LayerwiseFM_ActionHeader import get_action_model, LayerwiseFlowmatchingActionHead
@@ -119,6 +120,14 @@ class Qwen_PI(baseframework):
             nn.SiLU(),
             nn.Linear(aux_hidden_dim, self.chunk_len),
         )
+        self.a_module_interface = build_a_module_interface(
+            config=self.config,
+            chunk_len=self.chunk_len,
+            a_risk_head=self.a_risk_head,
+            a_trigger_head=self.a_trigger_head,
+            corrective_delta_head=self.corrective_delta_head,
+            corrective_region_head=self.corrective_region_head,
+        )
 
     def _compute_optional_hook_outputs(
         self,
@@ -140,6 +149,13 @@ class Qwen_PI(baseframework):
         )
         output_dict: dict[str, torch.Tensor] = {}
         debug_metrics: dict[str, float] = {}
+        a_predictions = self.a_module_interface.predict(
+            pooled_hidden=pooled_hidden,
+            examples=examples,
+            action_loss=action_loss,
+            chunk_len=self.chunk_len,
+        )
+        debug_metrics.update(getattr(a_predictions, "debug_metrics", {}))
 
         a_cfg = _cfg_get(hook_cfg, "a_loss", None)
         if _cfg_enabled(a_cfg, "enabled", default=False):
@@ -147,8 +163,8 @@ class Qwen_PI(baseframework):
             risk_weight = float(_cfg_get(a_cfg, "risk_weight", 1.0))
             trigger_weight = float(_cfg_get(a_cfg, "trigger_weight", 1.0))
 
-            risk_pred = self.a_risk_head(pooled_hidden).squeeze(-1)
-            trigger_logit = self.a_trigger_head(pooled_hidden).squeeze(-1)
+            risk_pred = a_predictions.risk_pred
+            trigger_logit = a_predictions.trigger_logit
             a_loss = action_loss.new_zeros(())
             target_count = 0
 
@@ -177,8 +193,8 @@ class Qwen_PI(baseframework):
             correction_mask_weight = float(_cfg_get(corrective_cfg, "correction_mask_weight", 1.0))
             region_prior_weight = float(_cfg_get(corrective_cfg, "region_prior_weight", 0.5))
 
-            delta_pred = self.corrective_delta_head(pooled_hidden).squeeze(-1)
-            region_logits = self.corrective_region_head(pooled_hidden)
+            delta_pred = a_predictions.delta_pred
+            region_logits = a_predictions.region_logits
             corrective_loss = action_loss.new_zeros(())
             target_count = 0
 

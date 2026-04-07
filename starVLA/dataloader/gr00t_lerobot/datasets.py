@@ -1816,6 +1816,10 @@ class LeRobotMixtureDataset(Dataset):
         if isinstance(pseudo_labels, dict):
             sample["pseudo_labels"] = pseudo_labels
 
+        a_outputs = record.get("a_outputs")
+        if isinstance(a_outputs, dict):
+            sample["a_outputs"] = a_outputs
+
         remaining_chunk = record.get("remaining_chunk")
         if remaining_chunk is not None:
             try:
@@ -1827,6 +1831,7 @@ class LeRobotMixtureDataset(Dataset):
 
         if "meta" in sample and isinstance(sample["meta"], dict):
             sample["meta"]["has_correction_supervision"] = True
+            sample["meta"]["has_a_outputs"] = bool(isinstance(a_outputs, dict))
             record_meta = record.get("meta")
             if isinstance(record_meta, dict) and "record_index" in record_meta:
                 record_index = _safe_int(record_meta.get("record_index"))

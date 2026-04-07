@@ -42,6 +42,13 @@ framework:
       output_dim: 1024
       positional_embeddings: null
   reduce_in_full_precision: true
+  a_module:
+    mode: lite
+    standalone:
+      input_key: a_outputs
+      allow_pseudo_labels_fallback: false
+      strict_missing: false
+      fallback_to_lite: true
 
 datasets:
   vla_data:
