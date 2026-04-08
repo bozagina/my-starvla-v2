@@ -35,25 +35,18 @@ def _cfg_get(cfg, key, default=None):
 def _resolve_vlm_shape_cfg(global_config):
     """
     Resolve VLM shape config for action head.
-    Prefer Qwen scope, fallback to legacy mapanything scope for compatibility.
+    Use Qwen scope only.
     """
     framework_cfg = _cfg_get(global_config, "framework", None)
     if framework_cfg is None:
         raise AttributeError("Missing `framework` config for action head initialization.")
 
-    # Qwen-first path (current retrofit stream)
     selected_cfg = _cfg_get(framework_cfg, "qwenvl", None)
     selected_scope = "framework.qwenvl"
 
-    # Legacy fallback
-    if selected_cfg is None:
-        selected_cfg = _cfg_get(framework_cfg, "mapanything_llava3d", None)
-        selected_scope = "framework.mapanything_llava3d"
-
     if selected_cfg is None:
         raise AttributeError(
-            "Missing VLM shape config: expected `framework.qwenvl` or "
-            "`framework.mapanything_llava3d`."
+            "Missing VLM shape config: expected `framework.qwenvl`."
         )
 
     num_vl_layers = _cfg_get(selected_cfg, "num_vl_layers", None)
