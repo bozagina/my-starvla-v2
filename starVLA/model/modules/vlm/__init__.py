@@ -1,5 +1,5 @@
 def _resolve_vlm_name(config):
-    """Resolve VLM name/path from config (Qwen-first, legacy fallback)."""
+    """Resolve VLM name/path from Qwen config."""
     fw = getattr(config, "framework", None)
     if fw is None:
         return None
@@ -8,10 +8,6 @@ def _resolve_vlm_name(config):
     if qwen_base:
         return str(qwen_base)
 
-    legacy_base = getattr(getattr(fw, "mapanything_llava3d", None), "base_vlm", None)
-    if legacy_base:
-        return str(legacy_base)
-
     return None
 
 
@@ -19,8 +15,7 @@ def get_vlm_model(config):
     vlm_name = _resolve_vlm_name(config)
     if not vlm_name:
         raise ValueError(
-            "Cannot resolve base VLM path from config: expected `framework.qwenvl.base_vlm` "
-            "or legacy `framework.mapanything_llava3d.base_vlm`."
+            "Cannot resolve base VLM path from config: expected `framework.qwenvl.base_vlm`."
         )
 
     vlm_name_l = vlm_name.lower()
@@ -42,8 +37,4 @@ def get_vlm_model(config):
         from .Florence2 import _Florence_Interface
 
         return _Florence_Interface(config)
-    if "mapanything_llava3d" in vlm_name_l or "mapanythingllava3d" in vlm_name_l:
-        from .MapAnythingLlava3D import _MapAnythingLlava3D_Interface
-
-        return _MapAnythingLlava3D_Interface(config)
     raise NotImplementedError(f"VLM model {vlm_name} not implemented")

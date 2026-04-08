@@ -88,7 +88,7 @@ def main():
         print(f"[step {step}] action_loss={loss.item():.6f}")
 
         base_model = model
-        vlm_interface = getattr(base_model, "mapanythingllava3d_vlm_interface", None)
+        vlm_interface = getattr(base_model, "qwen_vl_interface", None)
         vlm_model = getattr(vlm_interface, "model", None) if vlm_interface is not None else None
 
         image_features = getattr(vlm_model, "_last_image_features", None) if vlm_model is not None else None
