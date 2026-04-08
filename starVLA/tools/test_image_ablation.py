@@ -104,7 +104,7 @@ def main():
         "--config_yaml",
         type=str,
         required=True,
-        help="Path to training config YAML (e.g. starvla_train_oxe_mapanything_llava3d.yaml)",
+        help="Path to training config YAML (e.g. starvla_train_pi_qwen25.yaml)",
     )
     parser.add_argument(
         "--checkpoint_path",

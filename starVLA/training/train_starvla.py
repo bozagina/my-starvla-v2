@@ -23,6 +23,7 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import time
 import re
+import hashlib
 
 # Third-Party Libraries
 import torch
@@ -54,7 +55,7 @@ logger = get_logger(__name__)
 
 
 def _resolve_base_vlm_path(cfg):
-    """Resolve base VLM path with Qwen-first preference while keeping legacy fallback."""
+    """Resolve base VLM path from Qwen config."""
     fw = getattr(cfg, "framework", None)
     if fw is None:
         return None, None
@@ -64,20 +65,14 @@ def _resolve_base_vlm_path(cfg):
     if qwen_base:
         return qwen_base, "framework.qwenvl.base_vlm"
 
-    legacy_cfg = getattr(fw, "mapanything_llava3d", None)
-    legacy_base = getattr(legacy_cfg, "base_vlm", None) if legacy_cfg is not None else None
-    if legacy_base:
-        return legacy_base, "framework.mapanything_llava3d.base_vlm"
-
     return None, None
 
 
 def _resolve_vlm_interface(model):
-    """Resolve runtime VLM interface attr on framework model (Qwen first, legacy fallback)."""
-    for attr_name in ("qwen_vl_interface", "mapanythingllava3d_vlm_interface"):
-        interface = getattr(model, attr_name, None)
-        if interface is not None:
-            return interface, attr_name
+    """Resolve runtime VLM interface attr on framework model."""
+    interface = getattr(model, "qwen_vl_interface", None)
+    if interface is not None:
+        return interface, "qwen_vl_interface"
     return None, None
 
 
@@ -137,6 +132,30 @@ def _ensure_single_process_deepspeed_env():
     os.environ.setdefault("LOCAL_RANK", "0")
     os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
     os.environ.setdefault("MASTER_PORT", "29500")
+
+
+def _normalize_mixed_precision_mode(mode) -> str:
+    if mode is None:
+        return "no"
+    mode_str = str(mode).strip().lower()
+    if mode_str in {"", "no", "none", "false", "off"}:
+        return "no"
+    if mode_str in {"fp16", "float16", "16"}:
+        return "fp16"
+    if mode_str in {"bf16", "bfloat16"}:
+        return "bf16"
+    return mode_str
+
+
+def _autocast_context_for_mode(mode):
+    if not torch.cuda.is_available():
+        return contextlib.nullcontext()
+    normalized = _normalize_mixed_precision_mode(mode)
+    if normalized == "fp16":
+        return torch.autocast("cuda", dtype=torch.float16)
+    if normalized == "bf16":
+        return torch.autocast("cuda", dtype=torch.bfloat16)
+    return torch.autocast("cuda", enabled=False)
 
 
 def build_accelerator(cfg) -> Accelerator:
@@ -206,8 +225,7 @@ def build_model(cfg) -> torch.nn.Module:
         logger.info(f"Loading Base VLM `{base_vlm}` from {src_path}")
     else:
         logger.warning(
-            "Unable to resolve base VLM path from config; expected `framework.qwenvl.base_vlm` "
-            "or legacy `framework.mapanything_llava3d.base_vlm`."
+            "Unable to resolve base VLM path from config; expected `framework.qwenvl.base_vlm`."
         )
     model = build_framework(cfg)
 
@@ -287,6 +305,14 @@ class VLATrainer(TrainerUtils):
         if backend is None:
             backend = "wandb"
         self.logger_backend = backend
+        self.runtime_mixed_precision = _normalize_mixed_precision_mode(
+            getattr(self.accelerator, "mixed_precision", "no")
+        )
+        self._param_watch_cache = None
+        self._param_watch_hook_handles = []
+        self._param_watch_active_logical_step = None
+        self._param_watch_event_index = 0
+        self._param_watch_last_finite_state = None
     
     def prepare_training(self):
         rank = dist.get_rank() if dist.is_initialized() else 0
@@ -329,9 +355,380 @@ class VLATrainer(TrainerUtils):
         self._patch_deepspeed_no_sync_if_needed()
 
         base_model = self.accelerator.unwrap_model(self.model)
+        setattr(base_model, "_starvla_runtime_mixed_precision", self.runtime_mixed_precision)
+        vlm_interface, _ = _resolve_vlm_interface(base_model)
+        if vlm_interface is not None:
+            setattr(vlm_interface, "_starvla_runtime_mixed_precision", self.runtime_mixed_precision)
+        logger.info("Resolved runtime mixed precision mode: %s", self.runtime_mixed_precision)
         self._register_grad_hooks(base_model)
+        self._register_param_watch_hooks()
 
         self._init_wandb()
+
+    def _get_param_watch_cfg(self):
+        if self._param_watch_cache is not None:
+            return self._param_watch_cache
+        watch_cfg = _cfg_get(getattr(self.config, "trainer", None), "param_watch", None)
+        enabled = _cfg_enabled(watch_cfg, "enabled", default=False)
+        param_name = str(_cfg_get(watch_cfg, "param_name", "")).strip() if watch_cfg is not None else ""
+        output_filename = str(
+            _cfg_get(watch_cfg, "output_filename", "param_watch.jsonl")
+        ).strip() if watch_cfg is not None else "param_watch.jsonl"
+        stages_raw = _cfg_get(watch_cfg, "stages", None) if watch_cfg is not None else None
+        if isinstance(stages_raw, str) and stages_raw.strip():
+            stages = {item.strip() for item in stages_raw.split(",") if item.strip()}
+        else:
+            stages = None
+        cfg = {
+            "enabled": bool(enabled and param_name),
+            "param_name": param_name,
+            "output_path": os.path.join(self.config.output_dir, output_filename),
+            "stages": stages,
+            "emit_hook_events": _cfg_enabled(watch_cfg, "emit_hook_events", default=True),
+            "update_safe_restore_nonfinite": _cfg_enabled(
+                watch_cfg, "update_safe_restore_nonfinite", default=False
+            ),
+            "module_name": str(_cfg_get(watch_cfg, "module_name", "")).strip() if watch_cfg is not None else "",
+        }
+        if not cfg["module_name"] and "." in param_name:
+            owner_module_name = param_name.rsplit(".", 1)[0]
+            cfg["module_name"] = owner_module_name.rsplit(".", 1)[0] if "." in owner_module_name else owner_module_name
+        self._param_watch_cache = cfg
+        return cfg
+
+    def _locate_watched_param(self, param_name: str):
+        base_model = self.accelerator.unwrap_model(self.model)
+        param = dict(base_model.named_parameters()).get(param_name)
+        if param is None:
+            raise KeyError(f"Unable to locate watched parameter: {param_name}")
+        return base_model, param
+
+    def _locate_named_module(self, module_name: str):
+        base_model = self.accelerator.unwrap_model(self.model)
+        module = dict(base_model.named_modules()).get(module_name)
+        if module is None:
+            raise KeyError(f"Unable to locate watched module: {module_name}")
+        return module
+
+    @staticmethod
+    def _tensor_digest(tensor: torch.Tensor | None):
+        if tensor is None:
+            return None
+        data = tensor.detach().float().cpu().reshape(-1)
+        if data.numel() == 0:
+            return "empty"
+        sample = data[: min(2048, data.numel())].numpy().tobytes()
+        return hashlib.sha1(sample).hexdigest()
+
+    @staticmethod
+    def _summarize_tensor(tensor):
+        if tensor is None:
+            return {
+                "exists": False,
+                "dtype": None,
+                "device": None,
+                "shape": None,
+                "all_finite": None,
+                "abs_max": None,
+                "nonfinite_count": None,
+                "digest": None,
+            }
+        if not torch.is_tensor(tensor):
+            return {
+                "exists": True,
+                "dtype": type(tensor).__name__,
+                "device": None,
+                "shape": [],
+                "all_finite": math.isfinite(float(tensor)) if isinstance(tensor, (float, int)) else None,
+                "abs_max": float(abs(tensor)) if isinstance(tensor, (float, int)) else None,
+                "nonfinite_count": 0 if isinstance(tensor, (float, int)) and math.isfinite(float(tensor)) else None,
+                "digest": repr(tensor),
+            }
+        detached = tensor.detach()
+        finite_mask = torch.isfinite(detached)
+        all_finite = bool(finite_mask.all().item())
+        nonfinite_count = int((~finite_mask).sum().item())
+        abs_max = None
+        if detached.numel() > 0:
+            try:
+                abs_max = float(detached.abs().float().max().item())
+            except Exception:
+                abs_max = None
+        shape = [int(x) for x in detached.shape]
+        return {
+            "exists": True,
+            "dtype": str(detached.dtype),
+            "device": str(detached.device),
+            "shape": shape,
+            "all_finite": all_finite,
+            "abs_max": abs_max,
+            "nonfinite_count": nonfinite_count,
+            "digest": VLATrainer._tensor_digest(detached),
+        }
+
+    def _safe_get_zero_tensor(self, getter_name: str, param, *extra_args):
+        try:
+            from deepspeed import utils as ds_utils
+        except Exception:
+            return None
+        getter = getattr(ds_utils, getter_name, None)
+        if getter is None:
+            return None
+        try:
+            return getter(param, *extra_args)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_first_tensor(value):
+        if torch.is_tensor(value):
+            return value
+        if isinstance(value, dict):
+            for item in value.values():
+                found = VLATrainer._extract_first_tensor(item)
+                if found is not None:
+                    return found
+            return None
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                found = VLATrainer._extract_first_tensor(item)
+                if found is not None:
+                    return found
+        return None
+
+    def _build_watched_param_state(self, param):
+        local_grad = param.grad.detach() if param.grad is not None else None
+        full_grad = self._safe_get_zero_tensor("safe_get_full_grad", param)
+        master_param = self._safe_get_zero_tensor("safe_get_full_fp32_param", param)
+        state_exp_avg = self._safe_get_zero_tensor("safe_get_full_optimizer_state", param, "exp_avg")
+        state_exp_avg_sq = self._safe_get_zero_tensor("safe_get_full_optimizer_state", param, "exp_avg_sq")
+        state_step = self._safe_get_zero_tensor("safe_get_full_optimizer_state", param, "step")
+        return {
+            "local_param": self._summarize_tensor(param),
+            "local_grad": self._summarize_tensor(local_grad),
+            "full_grad": self._summarize_tensor(full_grad),
+            "full_fp32_param": self._summarize_tensor(master_param),
+            "optimizer_state": {
+                "exp_avg": self._summarize_tensor(state_exp_avg),
+                "exp_avg_sq": self._summarize_tensor(state_exp_avg_sq),
+                "step": self._summarize_tensor(state_step),
+            },
+        }
+
+    def _cache_watched_param_finite_state(self, param, stage_name: str):
+        state = self._build_watched_param_state(param)
+        local_summary = state["local_param"]
+        full_summary = state["full_fp32_param"]
+        local_ok = local_summary.get("all_finite") is True
+        full_ok = (not full_summary.get("exists")) or (full_summary.get("all_finite") is True)
+        if not (local_ok and full_ok):
+            return None
+        cache = {
+            "stage": stage_name,
+            "logical_step": self._current_param_watch_logical_step(),
+            "local_param": param.detach().clone(),
+            "full_fp32_param": None,
+        }
+        master_param = self._safe_get_zero_tensor("safe_get_full_fp32_param", param)
+        if master_param is not None:
+            cache["full_fp32_param"] = master_param.detach().clone()
+        self._param_watch_last_finite_state = cache
+        return cache
+
+    def _maybe_restore_watched_param(self, stage_name: str, logical_step: int):
+        watch_cfg = self._get_param_watch_cfg()
+        if not watch_cfg["enabled"] or not watch_cfg["update_safe_restore_nonfinite"]:
+            return False
+        if not self.accelerator.is_main_process:
+            return False
+
+        _, param = self._locate_watched_param(watch_cfg["param_name"])
+        state = self._build_watched_param_state(param)
+        local_bad = state["local_param"].get("all_finite") is False
+        full_bad = state["full_fp32_param"].get("all_finite") is False
+        if not (local_bad or full_bad):
+            return False
+
+        cache = self._param_watch_last_finite_state
+        if not cache:
+            logger.warning("Skip watched-param restore at %s: no cached finite state.", stage_name)
+            return False
+
+        with torch.no_grad():
+            param.copy_(cache["local_param"].to(device=param.device, dtype=param.dtype))
+            master_param = self._safe_get_zero_tensor("safe_get_full_fp32_param", param)
+            cached_master = cache.get("full_fp32_param")
+            if master_param is not None and cached_master is not None:
+                master_param.copy_(cached_master.to(device=master_param.device, dtype=master_param.dtype))
+
+        restored = {
+            "stage": stage_name,
+            "logical_step": int(logical_step),
+            "completed_steps_before_increment": int(self.completed_steps),
+            "param_name": watch_cfg["param_name"],
+            "runtime_mixed_precision": self.runtime_mixed_precision,
+            "optimizer_class": type(self.optimizer).__name__,
+            "model_class": type(self.model).__name__,
+            "restore_applied": True,
+            "restore_source_stage": cache.get("stage"),
+            "restore_source_logical_step": cache.get("logical_step"),
+            "restore_trigger_local_nonfinite": bool(local_bad),
+            "restore_trigger_full_fp32_nonfinite": bool(full_bad),
+        }
+        restored.update(self._build_watched_param_state(param))
+        self._write_param_watch_record(restored, honor_stage_filter=True)
+        return True
+
+    def _current_param_watch_logical_step(self) -> int:
+        active = getattr(self, "_param_watch_active_logical_step", None)
+        if active is not None:
+            return int(active)
+        return int(self.completed_steps) + 1
+
+    def _write_param_watch_record(self, record: dict, *, honor_stage_filter: bool = True):
+        watch_cfg = self._get_param_watch_cfg()
+        if not watch_cfg["enabled"]:
+            return None
+        if not self.accelerator.is_main_process:
+            return None
+        stage_name = str(record.get("stage", "")).strip()
+        stages = watch_cfg["stages"]
+        if honor_stage_filter and stages is not None and stage_name not in stages:
+            return None
+        self._param_watch_event_index += 1
+        record["event_index"] = int(self._param_watch_event_index)
+        try:
+            with open(watch_cfg["output_path"], "a") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception as e:
+            logger.warning("Failed to write param watch record at %s: %s", stage_name, e)
+        logger.info("Param watch snapshot %s: %s", stage_name, record)
+        return record
+
+    def _register_param_watch_hooks(self):
+        watch_cfg = self._get_param_watch_cfg()
+        if not watch_cfg["enabled"] or not watch_cfg["emit_hook_events"]:
+            return
+        if self._param_watch_hook_handles:
+            return
+        if not self.accelerator.is_main_process:
+            return
+
+        _, param = self._locate_watched_param(watch_cfg["param_name"])
+
+        def _build_record(stage_name: str) -> dict:
+            return {
+                "stage": stage_name,
+                "logical_step": self._current_param_watch_logical_step(),
+                "completed_steps_before_increment": int(self.completed_steps),
+                "param_name": watch_cfg["param_name"],
+                "module_name": watch_cfg["module_name"] or None,
+                "runtime_mixed_precision": self.runtime_mixed_precision,
+                "optimizer_class": type(self.optimizer).__name__,
+                "model_class": type(self.model).__name__,
+            }
+
+        def _param_grad_hook(grad):
+            record = _build_record(
+                f"step{self._current_param_watch_logical_step()}_param_grad_hook"
+            )
+            record.update(self._build_watched_param_state(param))
+            record["hook_grad"] = self._summarize_tensor(grad)
+            record["param_at_hook"] = self._summarize_tensor(param)
+            record["full_fp32_param_at_hook"] = self._summarize_tensor(
+                self._safe_get_zero_tensor("safe_get_full_fp32_param", param)
+            )
+            self._write_param_watch_record(record, honor_stage_filter=False)
+            self._cache_watched_param_finite_state(param, record["stage"])
+            return grad
+
+        self._param_watch_hook_handles.append(param.register_hook(_param_grad_hook))
+
+        if hasattr(param, "register_post_accumulate_grad_hook"):
+            def _param_post_accumulate_grad_hook(_param):
+                record = _build_record(
+                    f"step{self._current_param_watch_logical_step()}_param_post_accumulate_grad_hook"
+                )
+                record.update(self._build_watched_param_state(param))
+                record["param_at_hook"] = self._summarize_tensor(param)
+                self._write_param_watch_record(record, honor_stage_filter=False)
+                self._cache_watched_param_finite_state(param, record["stage"])
+
+            self._param_watch_hook_handles.append(
+                param.register_post_accumulate_grad_hook(_param_post_accumulate_grad_hook)
+            )
+
+        module_name = watch_cfg["module_name"]
+        if not module_name:
+            return
+        try:
+            watched_module = self._locate_named_module(module_name)
+        except KeyError as e:
+            logger.warning(str(e))
+            return
+
+        def _forward_hook(_module, inputs, output):
+            record = _build_record(
+                f"step{self._current_param_watch_logical_step()}_module_forward_hook"
+            )
+            record.update(self._build_watched_param_state(param))
+            record["module_input_first_tensor"] = self._summarize_tensor(
+                self._extract_first_tensor(inputs)
+            )
+            record["module_output_first_tensor"] = self._summarize_tensor(
+                self._extract_first_tensor(output)
+            )
+            record["param_at_hook"] = self._summarize_tensor(param)
+            self._write_param_watch_record(record, honor_stage_filter=False)
+
+        def _backward_hook(_module, grad_input, grad_output):
+            record = _build_record(
+                f"step{self._current_param_watch_logical_step()}_module_backward_hook"
+            )
+            record.update(self._build_watched_param_state(param))
+            record["module_grad_input_first_tensor"] = self._summarize_tensor(
+                self._extract_first_tensor(grad_input)
+            )
+            record["module_grad_output_first_tensor"] = self._summarize_tensor(
+                self._extract_first_tensor(grad_output)
+            )
+            record["param_at_hook"] = self._summarize_tensor(param)
+            record["full_fp32_param_at_hook"] = self._summarize_tensor(
+                self._safe_get_zero_tensor("safe_get_full_fp32_param", param)
+            )
+            self._write_param_watch_record(record, honor_stage_filter=False)
+
+        self._param_watch_hook_handles.append(
+            watched_module.register_forward_hook(_forward_hook)
+        )
+        self._param_watch_hook_handles.append(
+            watched_module.register_full_backward_hook(_backward_hook)
+        )
+
+    def _collect_watched_param_snapshot(self, stage_name: str, logical_step: int):
+        watch_cfg = self._get_param_watch_cfg()
+        if not watch_cfg["enabled"]:
+            return None
+        stages = watch_cfg["stages"]
+        if stages is not None and stage_name not in stages:
+            return None
+        if not self.accelerator.is_main_process:
+            return None
+
+        _, param = self._locate_watched_param(watch_cfg["param_name"])
+        snapshot = {
+            "stage": stage_name,
+            "logical_step": int(logical_step),
+            "completed_steps_before_increment": int(self.completed_steps),
+            "param_name": watch_cfg["param_name"],
+            "runtime_mixed_precision": self.runtime_mixed_precision,
+            "optimizer_class": type(self.optimizer).__name__,
+            "model_class": type(self.model).__name__,
+        }
+        snapshot.update(self._build_watched_param_state(param))
+        self._cache_watched_param_finite_state(param, stage_name)
+
+        return self._write_param_watch_record(snapshot, honor_stage_filter=True)
 
     def _patch_deepspeed_no_sync_if_needed(self):
         """
@@ -1177,111 +1574,153 @@ class VLATrainer(TrainerUtils):
     def _train_step(self, batch_vla, batch_vlm=None):
         """execute single training step"""
         step_metrics = {}
-        with self.accelerator.accumulate(self.model):
-            self._check_shared_builder_contract(batch_vla, step_metrics)
-            # VLA task forward propagation
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                output_dict = self.model.forward(batch_vla)
-                action_loss = output_dict["action_loss"]
-
-            debug_metrics = output_dict.get("debug_metrics", None)
-            action_loss_value = float(action_loss.detach().float().item())
-            step_metrics["action_dit_loss"] = action_loss_value
-            step_metrics["loss/action"] = action_loss_value
-            if isinstance(debug_metrics, dict):
-                step_metrics.update(debug_metrics)
-            total_loss = self._compute_optional_hook_losses(
-                output_dict=output_dict,
-                action_loss=action_loss,
-                step_metrics=step_metrics,
-            )
-            if "loss/total" not in step_metrics:
-                step_metrics["loss/total"] = float(total_loss.detach().float().item())
-
-            # Guard against loss explosion before backward.
-            if not torch.isfinite(total_loss).all():
-                logger.warning(
-                    "Detected non-finite loss at completed_steps=%d, skip optimizer update.",
-                    self.completed_steps,
+        logical_step = int(self.completed_steps) + 1
+        self._param_watch_active_logical_step = logical_step
+        try:
+            with self.accelerator.accumulate(self.model):
+                self._check_shared_builder_contract(batch_vla, step_metrics)
+                self._collect_watched_param_snapshot(
+                    stage_name=f"step{logical_step}_forward_pre",
+                    logical_step=logical_step,
                 )
-                step_metrics["debug/nonfinite_loss"] = 1.0
-                self.optimizer.zero_grad()
-                return step_metrics
+                # VLA task forward propagation
+                with _autocast_context_for_mode(self.runtime_mixed_precision):
+                    output_dict = self.model.forward(batch_vla)
+                    action_loss = output_dict["action_loss"]
 
-            # Smoke-only fast path: validate forward/loss contract without optimizer state allocation.
-            if _cfg_enabled(getattr(self.config, "trainer", None), "smoke_forward_only", default=False):
-                step_metrics["debug/smoke_forward_only"] = 1.0
-                self.optimizer.zero_grad()
-                return step_metrics
+                debug_metrics = output_dict.get("debug_metrics", None)
+                action_loss_value = float(action_loss.detach().float().item())
+                step_metrics["action_dit_loss"] = action_loss_value
+                step_metrics["loss/action"] = action_loss_value
+                if isinstance(debug_metrics, dict):
+                    step_metrics.update(debug_metrics)
+                total_loss = self._compute_optional_hook_losses(
+                    output_dict=output_dict,
+                    action_loss=action_loss,
+                    step_metrics=step_metrics,
+                )
+                if "loss/total" not in step_metrics:
+                    step_metrics["loss/total"] = float(total_loss.detach().float().item())
 
-            # VLA backward propagation
-            self.accelerator.backward(total_loss)
-
-            geom_vision_only_steps = getattr(self.config.trainer, "geom_vision_only_steps", 0)
-            lang_freeze_steps = getattr(self.config.trainer, "lang_freeze_steps", 0)
-            if geom_vision_only_steps and self.completed_steps < geom_vision_only_steps:
-                try:
-                    base_model = self.accelerator.unwrap_model(self.model)
-                    action_model = getattr(base_model, "action_model", None)
-                    if action_model is not None:
-                        for p in action_model.parameters():
-                            if p.grad is not None:
-                                p.grad.zero_()
-                    vlm_interface, _ = _resolve_vlm_interface(base_model)
-                    vlm_model = getattr(vlm_interface, "model", None) if vlm_interface is not None else None
-                    language_model = getattr(vlm_model, "language_model", None) if vlm_model is not None else None
-                    if language_model is not None:
-                        for p in language_model.parameters():
-                            if p.grad is not None:
-                                p.grad.zero_()
-                except Exception as e:
-                    logger.warning(f"Failed to zero grads during geom_vision_only warmup: {e}")
-            elif lang_freeze_steps and self.completed_steps < lang_freeze_steps:
-                try:
-                    base_model = self.accelerator.unwrap_model(self.model)
-                    vlm_interface, _ = _resolve_vlm_interface(base_model)
-                    vlm_model = getattr(vlm_interface, "model", None) if vlm_interface is not None else None
-                    language_model = getattr(vlm_model, "language_model", None) if vlm_model is not None else None
-                    if language_model is not None:
-                        for p in language_model.parameters():
-                            if p.grad is not None:
-                                p.grad.zero_()
-                except Exception as e:
-                    logger.warning(f"Failed to zero language model grads during warmup: {e}")
-
-            # gradient clipping
-            clipped_grad_norm = None
-            if self.config.trainer.gradient_clipping is not None:
-                if self.accelerator.sync_gradients:
-                    grad_norm = self.accelerator.clip_grad_norm_(
-                        self.model.parameters(),
-                        self.config.trainer.gradient_clipping,
-                    )
-                    if isinstance(grad_norm, torch.Tensor):
-                        clipped_grad_norm = float(grad_norm.detach().float().cpu().item())
-                    elif grad_norm is not None:
-                        clipped_grad_norm = float(grad_norm)
-                    if clipped_grad_norm is not None:
-                        step_metrics["debug/clip_grad_norm"] = clipped_grad_norm
-
-            # collect grad/weight stats before optimizer step (only on synchronized steps)
-            if self.accelerator.sync_gradients:
-                self._collect_debug_norm_metrics(step_metrics)
-
-            # optimizer step
-            if self.accelerator.sync_gradients:
-                if clipped_grad_norm is not None and not math.isfinite(clipped_grad_norm):
+                # Guard against loss explosion before backward.
+                if not torch.isfinite(total_loss).all():
                     logger.warning(
-                        "Detected non-finite clipped grad norm at completed_steps=%d, skip optimizer update.",
+                        "Detected non-finite loss at completed_steps=%d, skip optimizer update.",
                         self.completed_steps,
                     )
-                    step_metrics["debug/nonfinite_grad_norm"] = 1.0
+                    step_metrics["debug/nonfinite_loss"] = 1.0
                     self.optimizer.zero_grad()
                     return step_metrics
 
-                self.optimizer.step()
-                self.lr_scheduler.step()
-                self.optimizer.zero_grad()
+                # Smoke-only fast path: validate forward/loss contract without optimizer state allocation.
+                if _cfg_enabled(getattr(self.config, "trainer", None), "smoke_forward_only", default=False):
+                    step_metrics["debug/smoke_forward_only"] = 1.0
+                    self.optimizer.zero_grad()
+                    return step_metrics
+
+                # VLA backward propagation
+                self.accelerator.backward(total_loss)
+                self._collect_watched_param_snapshot(
+                    stage_name=f"step{logical_step}_backward_return",
+                    logical_step=logical_step,
+                )
+                self._maybe_restore_watched_param(
+                    stage_name=f"step{logical_step}_backward_return_restore_post",
+                    logical_step=logical_step,
+                )
+
+                geom_vision_only_steps = getattr(self.config.trainer, "geom_vision_only_steps", 0)
+                lang_freeze_steps = getattr(self.config.trainer, "lang_freeze_steps", 0)
+                if geom_vision_only_steps and self.completed_steps < geom_vision_only_steps:
+                    try:
+                        base_model = self.accelerator.unwrap_model(self.model)
+                        action_model = getattr(base_model, "action_model", None)
+                        if action_model is not None:
+                            for p in action_model.parameters():
+                                if p.grad is not None:
+                                    p.grad.zero_()
+                        vlm_interface, _ = _resolve_vlm_interface(base_model)
+                        vlm_model = getattr(vlm_interface, "model", None) if vlm_interface is not None else None
+                        language_model = getattr(vlm_model, "language_model", None) if vlm_model is not None else None
+                        if language_model is not None:
+                            for p in language_model.parameters():
+                                if p.grad is not None:
+                                    p.grad.zero_()
+                    except Exception as e:
+                        logger.warning(f"Failed to zero grads during geom_vision_only warmup: {e}")
+                elif lang_freeze_steps and self.completed_steps < lang_freeze_steps:
+                    try:
+                        base_model = self.accelerator.unwrap_model(self.model)
+                        vlm_interface, _ = _resolve_vlm_interface(base_model)
+                        vlm_model = getattr(vlm_interface, "model", None) if vlm_interface is not None else None
+                        language_model = getattr(vlm_model, "language_model", None) if vlm_model is not None else None
+                        if language_model is not None:
+                            for p in language_model.parameters():
+                                if p.grad is not None:
+                                    p.grad.zero_()
+                    except Exception as e:
+                        logger.warning(f"Failed to zero language model grads during warmup: {e}")
+
+                self._collect_watched_param_snapshot(
+                    stage_name=f"step{logical_step}_pre_clip",
+                    logical_step=logical_step,
+                )
+                self._maybe_restore_watched_param(
+                    stage_name=f"step{logical_step}_pre_clip_restore_post",
+                    logical_step=logical_step,
+                )
+
+                # gradient clipping
+                clipped_grad_norm = None
+                if self.config.trainer.gradient_clipping is not None:
+                    if self.accelerator.sync_gradients:
+                        grad_norm = self.accelerator.clip_grad_norm_(
+                            self.model.parameters(),
+                            self.config.trainer.gradient_clipping,
+                        )
+                        if isinstance(grad_norm, torch.Tensor):
+                            clipped_grad_norm = float(grad_norm.detach().float().cpu().item())
+                        elif grad_norm is not None:
+                            clipped_grad_norm = float(grad_norm)
+                        if clipped_grad_norm is not None:
+                            step_metrics["debug/clip_grad_norm"] = clipped_grad_norm
+                self._collect_watched_param_snapshot(
+                    stage_name=f"step{logical_step}_post_clip_pre_optim",
+                    logical_step=logical_step,
+                )
+                self._maybe_restore_watched_param(
+                    stage_name=f"step{logical_step}_post_clip_pre_optim_restore_post",
+                    logical_step=logical_step,
+                )
+
+                # collect grad/weight stats before optimizer step (only on synchronized steps)
+                if self.accelerator.sync_gradients:
+                    self._collect_debug_norm_metrics(step_metrics)
+
+                # optimizer step
+                if self.accelerator.sync_gradients:
+                    if clipped_grad_norm is not None and not math.isfinite(clipped_grad_norm):
+                        logger.warning(
+                            "Detected non-finite clipped grad norm at completed_steps=%d, skip optimizer update.",
+                            self.completed_steps,
+                        )
+                        step_metrics["debug/nonfinite_grad_norm"] = 1.0
+                        self.optimizer.zero_grad()
+                        return step_metrics
+
+                    self._collect_watched_param_snapshot(
+                        stage_name=f"step{logical_step}_backward_post_pre_optim",
+                        logical_step=logical_step,
+                    )
+                    self.optimizer.step()
+                    self.lr_scheduler.step()
+                    self._collect_watched_param_snapshot(
+                        stage_name=f"step{logical_step}_optimizer_post",
+                        logical_step=logical_step,
+                    )
+                    self.optimizer.zero_grad()
+        finally:
+            self._param_watch_active_logical_step = None
 
         return step_metrics
 
