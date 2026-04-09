@@ -1,0 +1,15 @@
+{
+  "rows": 5,
+  "all_loss_finite": true,
+  "final_step": 5,
+  "first_step": 1,
+  "last": {
+    "loss/total": 2.9487080574035645,
+    "loss/risk": 0.1478690803050995,
+    "loss/trigger": 0.6475929021835327,
+    "loss/delta": 0.21329669654369354,
+    "loss/region": 0.6904955506324768,
+    "loss/embed": 1.2494536638259888
+  },
+  "bad_examples": []
+}
