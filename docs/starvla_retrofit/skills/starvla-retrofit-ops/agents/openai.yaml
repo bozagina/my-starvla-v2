@@ -1,0 +1,4 @@
+interface:
+  display_name: "StarVLA Retrofit Ops"
+  short_description: "Phase-gated retrofit ops for StarVLA"
+  default_prompt: "Use $starvla-retrofit-ops to run a token-efficient, evidence-backed StarVLA retrofit round."

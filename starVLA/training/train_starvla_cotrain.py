@@ -185,10 +185,10 @@ class VLAMTrainer(TrainerUtils):
 
             try:
                 swanlab.init(
-                    project=getattr(self.config, "wandb_project", "starvla_mapanything_llava3d"),
-                    workspace=getattr(self.config, "wandb_entity", "starvla_mapanything_llava3d"),
+                    project=getattr(self.config, "wandb_project", "starvla_qwenvl_cotrain"),
+                    workspace=getattr(self.config, "wandb_entity", "starvla_qwenvl_cotrain"),
                     experiment_name=self.config.run_id,
-                    description="StarVLA VLA+VLM CoTrain (starvla_mapanything_llava3d)",
+                    description="StarVLA VLA+VLM CoTrain (qwen-only)",
                     config=OmegaConf.to_container(self.config, resolve=True),
                     logdir=os.path.join(self.config.output_dir, "swanlog"),
                 )
@@ -438,8 +438,7 @@ class VLAMTrainer(TrainerUtils):
             pass
             # VLM task forward propagation
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                # vlm_output = self.model.qwen_vl_interface(**batch_vlm)
-                vlm_output = self.model.mapanythingllava3d_vlm_interface(**batch_vlm)
+                vlm_output = self.model.qwen_vl_interface(**batch_vlm)
                 vlm_loss = vlm_output.loss * self.config.trainer.loss_scale.vlm
 
             self.accelerator.backward(vlm_loss)

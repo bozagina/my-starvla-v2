@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="myserver"
-REMOTE_REPO="/2025233147/zzq/SpatialVLA_llava3d/starVLA"
+HOST="${HOST:-myserver}"
+REMOTE_REPO="${REMOTE_REPO:-/2025233147/zzq_0317/starVLA}"
 TRAIN_CMD="bash examples/LIBERO/train_files/run_libero_train.sh"
 
 # session name: train_YYYYmmdd_HHMMSS

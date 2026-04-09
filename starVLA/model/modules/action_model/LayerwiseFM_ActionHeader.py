@@ -31,6 +31,45 @@ def _cfg_get(cfg, key, default=None):
         return cfg.get(key, default)
     return getattr(cfg, key, default)
 
+
+def _resolve_vlm_shape_cfg(global_config):
+    """
+    Resolve VLM shape config for action head.
+    Use Qwen scope only.
+    """
+    framework_cfg = _cfg_get(global_config, "framework", None)
+    if framework_cfg is None:
+        raise AttributeError("Missing `framework` config for action head initialization.")
+
+    selected_cfg = _cfg_get(framework_cfg, "qwenvl", None)
+    selected_scope = "framework.qwenvl"
+
+    if selected_cfg is None:
+        raise AttributeError(
+            "Missing VLM shape config: expected `framework.qwenvl`."
+        )
+
+    num_vl_layers = _cfg_get(selected_cfg, "num_vl_layers", None)
+    vl_hidden_dim = _cfg_get(selected_cfg, "vl_hidden_dim", None)
+
+    if num_vl_layers is None:
+        num_vl_layers = DiTConfig["num_layers"]
+        logger.warning(
+            "Missing `%s.num_vl_layers`, fallback to default=%d.",
+            selected_scope,
+            num_vl_layers,
+        )
+    if vl_hidden_dim is None:
+        vl_hidden_dim = DiTConfig["input_embedding_dim"]
+        logger.warning(
+            "Missing `%s.vl_hidden_dim`, fallback to default=%d.",
+            selected_scope,
+            vl_hidden_dim,
+        )
+
+    return int(num_vl_layers), int(vl_hidden_dim), selected_scope
+
+
 class CategorySpecificLinear(nn.Module):
     def __init__(self, num_categories, input_dim, hidden_dim):
         super().__init__()
@@ -244,7 +283,7 @@ class LayerwiseFlowmatchingActionHead(nn.Module):
         action_config = global_config.framework.action_model
         diffusion_model_cfg = action_config.diffusion_model_cfg
 
-        num_vl_layers = global_config.framework.mapanything_llava3d.num_vl_layers
+        num_vl_layers, vl_hidden_dim, vl_scope = _resolve_vlm_shape_cfg(global_config)
         cfg_num_layers = None
         try:
             if isinstance(diffusion_model_cfg, dict):
@@ -260,11 +299,11 @@ class LayerwiseFlowmatchingActionHead(nn.Module):
             effective_num_layers = min(cfg_num_layers, num_vl_layers)
 
         DiTConfig["num_layers"] = effective_num_layers
-        DiTConfig["input_embedding_dim"] = global_config.framework.mapanything_llava3d.vl_hidden_dim
+        DiTConfig["input_embedding_dim"] = vl_hidden_dim
         DiTConfig["num_attention_heads"] = DiTConfig["input_embedding_dim"] // DiTConfig["attention_head_dim"]
         diffusion_model_cfg.update(DiTConfig)
         diffusion_model_cfg.cross_attention_dim = DiTConfig["input_embedding_dim"]
-        self.input_embedding_dim = global_config.framework.mapanything_llava3d.vl_hidden_dim
+        self.input_embedding_dim = vl_hidden_dim
         self.model = DiT(**diffusion_model_cfg)
         if isinstance(diffusion_model_cfg, dict):
             dit_output_dim = diffusion_model_cfg.get("output_dim", self.input_embedding_dim)
@@ -307,7 +346,8 @@ class LayerwiseFlowmatchingActionHead(nn.Module):
         self._last_dit_layer_means = []
         self._last_dit_layer_vars = []
         logger.info(
-            "LayerwiseFMActionHead initialized: use_concat_cross_context=%s, cross_attention_assert_inputs=%s, cross_attention_debug_log_interval=%d",
+            "LayerwiseFMActionHead initialized: vl_scope=%s, use_concat_cross_context=%s, cross_attention_assert_inputs=%s, cross_attention_debug_log_interval=%d",
+            vl_scope,
             self.use_concat_cross_context,
             self.cross_attention_assert_inputs,
             self.cross_attention_debug_log_interval,

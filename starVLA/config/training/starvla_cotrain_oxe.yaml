@@ -7,7 +7,7 @@ wandb_project: llavavla
 is_debug: false
 
 framework:
-  name: QwenFM
+  name: QwenGR00T
   qwenvl:
     base_vlm: ./playground/Pretrained_models/Qwen2.5-VL-3B-Instruct
     attn_implementation: flash_attention_2
@@ -62,6 +62,9 @@ datasets:
     dataset_py: lerobot_datasets
     data_root_dir: playground/Datasets/OXE_LEROBOT_DATASET
     data_mix: bridge_rt_1 # bridge_rt_1
+    shared_builder_enabled: false
+    # Optional override; default follows `framework.action_model.future_action_window_size + 1`.
+    # action_chunk_size: 16
     action_type: delta_ee
     CoT_prompt: "Your task is {instruction}. To identify the key objects for your task. Locate their bounding boxes in [x1,y1,x2,y2] format."
     CoT_answer: bbox
@@ -97,6 +100,14 @@ trainer:
   logging_frequency: 10
   gradient_clipping: 1.0
   gradient_accumulation_steps: 1
+  shared_builder_contract_check:
+    enabled: false
+    mode: auto
+    expected_schema_version: p1_shared_builder_v1
+    expected_action_chunk_len: null
+    expected_action_dim: null
+    require_state: false
+    strict_legacy_no_extra: true
 
   optimizer:
     name: AdamW

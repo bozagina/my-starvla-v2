@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="myserver"
-REMOTE_REPO="/2025233147/zzq/SpatialVLA_llava3d/starVLA"
+HOST="${HOST:-myserver}"
+REMOTE_REPO="${REMOTE_REPO:-/2025233147/zzq_0317/starVLA}"
 CKPT_ROOT="$REMOTE_REPO/results/Checkpoints"
 
 ssh "$HOST" bash -lc "'
