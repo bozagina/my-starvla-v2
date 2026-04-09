@@ -4957,3 +4957,352 @@ Copy this block for each new entry:
   - Let R review Phase1.1 from `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_smoke_20260409/` without rerunning smoke.
 - Commit message:
   - `[ALG1-FASA-20260409-003-OC] add Phase1 smoke metrics summaries and manifest`
+
+## [2026-04-09 12:38:11 +08:00] ALG1-FASA-20260409-004-OC package Build-v2 bootstrap context and handoff boundaries
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Package the current authoritative state, PR merge gate, guardrails, and next-step execution contract into a Build-v2 bootstrap handoff without reopening baseline training or touching mainline code.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/build_v2_bootstrap_context_20260409.md`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - No training rerun.
+    - No model/framework changes.
+    - No changes to:
+      - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi_qwen25.yaml`
+      - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md`
+      - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py`
+    - Added a new Build-v2 handoff document containing:
+      - authoritative baseline state
+      - progress matrix across Phase0 / Phase1 / Phase1.1
+      - PR `#2` merge-state commands and current result
+      - evidence index and artifact reuse paths
+      - hard guardrails
+      - first-sprint plan
+      - a full copy-paste bootstrap prompt for the next Build-v2 thread
+- Evidence:
+  - Commands:
+    - `export REPO_ROOT="$(git rev-parse --show-toplevel)" && export STARVLA_EXPECTED_REPO_ROOT="/Users/bazinga/code/my-starvla-v2" && export STARVLA_EXPECTED_VLM_SCOPE="qwen_only" && bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root`
+    - `export REPO_ROOT="$(git rev-parse --show-toplevel)" && export STARVLA_EXPECTED_REPO_ROOT="/Users/bazinga/code/my-starvla-v2" && export STARVLA_EXPECTED_VLM_SCOPE="qwen_only" && bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"`
+    - `git fetch origin --prune && git merge-base --is-ancestor 05cfd882d84d7b2799e4505f701c4123f3aeab33 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$? && git ls-remote origin refs/pull/2/head refs/pull/2/merge`
+    - `ls -lah /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_qwen25_longrun_authoritative_20260408`
+    - `ls -lah /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase0_20260408`
+    - `ls -lah /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase0_libero_remote_20260409`
+    - `ls -lah /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_smoke_20260409`
+    - `cat /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase0_20260408/fasa_phase0_demo_sim_pick_place_h4.audit.json`
+    - `cat /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase0_libero_remote_20260409/fasa_phase0_libero_h4.audit.json`
+    - `cat /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_smoke_20260409/p4_1_fasa_sidecar_smoke_5step_20260409_083405__P4_1-BUILDER-20260409-OC/metrics_key_summary.json`
+    - `cat /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_smoke_20260409/p4_1_fasa_sidecar_smoke_50step_20260409_083432__P4_1-BUILDER-20260409-OC/metrics_key_summary.json`
+    - `cat /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_qwen25_longrun_authoritative_20260408/metrics_key_summary.json`
+    - `cd /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_smoke_20260409 && sha256sum -c manifest.sha256`
+    - `nl -ba /Users/bazinga/code/my-starvla-v2/examples/LIBERO/train_files/run_libero_train.sh | sed -n '20,36p'`
+  - Key outputs/metrics:
+    - Startup gate:
+      - `REPO_CONTEXT_OK=YES`
+      - `READY_TO_DEVELOP=YES`
+    - PR/base state:
+      - `MERGE_BASE_EXIT=1`
+      - `05cfd882d84d7b2799e4505f701c4123f3aeab33 refs/pull/2/head`
+      - `bd4cb464269158dbeb822880c5efbcb4aeb70e7a refs/pull/2/merge`
+      - interpretation:
+        - PR `#2` exists on remote but is not yet merged into `origin/codex/worktree-starvla-v2-mainline`
+    - Phase0 local demo audit:
+      - `rows_total=411`
+      - `rows_region_target_15_len_mismatch=0`
+      - `rows_nonfinite=0`
+      - `gate_pass=true`
+    - Phase0 remote LIBERO audit:
+      - `rows_total=66058`
+      - `rows_future_state_backfilled_ok_ratio=1.0`
+      - `rows_region_target_15_len_mismatch=0`
+      - `rows_nonfinite=0`
+      - `gate_pass=true`
+    - Phase1 smoke summaries:
+      - 5-step:
+        - `rows=5`
+        - `all_loss_finite=true`
+        - `final_step=5`
+      - 50-step:
+        - `rows=50`
+        - `all_loss_finite=true`
+        - `final_step=50`
+    - Authoritative baseline summary:
+      - `rows=5000`
+      - `bad_count=0`
+      - `first_bad=null`
+      - `all_loss_finite=true`
+    - Manifest:
+      - checksum verification passes for all covered Phase1.1 files
+    - `LIBERO_DATA_ROOT` closure reminder:
+      - line `20` uses `libero_data_root="${LIBERO_DATA_ROOT:-}"`
+      - lines `29-36` are explicit fail-fast checks with `exit 2`
+- Decision:
+  - Build-v2 now has a single bootstrap handoff document that captures the frozen baseline, the sidecar/FASA progress line, the current PR merge blocker, and the exact next-step rules.
+  - The next Build-v2 thread should check PR `#2` merge state first; if it is still unmerged, it must stop at `BLOCKED_WAIT_REMOTE`.
+- Risks/Notes:
+  - `starVLA/model/framework/QwenPI.py` still has a pre-existing worktree diff outside this round, but it was not touched here and is explicitly excluded from the bootstrap package.
+  - This round intentionally does not re-verify or reopen the closed `P2 / LIBERO_DATA_ROOT` finding beyond referencing existing file/progress evidence.
+- Next step:
+  - Start the new Build-v2 thread with the bootstrap prompt stored in `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/build_v2_bootstrap_context_20260409.md`.
+  - Require Day0 merge-state verification before any Phase1.2 sidecar work proceeds.
+- Commit message:
+  - `[ALG1-FASA-20260409-004-OC] package Build-v2 bootstrap handoff context`
+
+## [2026-04-09 14:31:00 +08:00] ALG1-FASA-20260409-005-OC Build-v2 Day0 merge-state gate blocked on PR#2 landing
+
+- Owner: OC
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Re-verify Day0 merge-state gate for Build-v2 and formally persist the blocking state in progress log before any Day1 work.
+- Evidence:
+  - Commands:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 05cfd882d84d7b2799e4505f701c4123f3aeab33 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - `git ls-remote origin refs/pull/2/head refs/pull/2/merge`
+  - Key outputs/metrics:
+    - `MERGE_BASE_EXIT=1`
+    - `05cfd882d84d7b2799e4505f701c4123f3aeab33 refs/pull/2/head`
+    - `bd4cb464269158dbeb822880c5efbcb4aeb70e7a refs/pull/2/merge`
+    - interpretation:
+      - PR `#2` remote refs exist, but approved closure commit is not yet an ancestor of `origin/codex/worktree-starvla-v2-mainline`.
+- Decision:
+  - Day0 precondition is unmet (`MERGE_BASE_EXIT=1`), so Build-v2 cannot enter Day1 Phase1.2 sidecar-only work in this round.
+  - Keep thread status at `BLOCKED_WAIT_REMOTE` and stop after gate report.
+- Missing items:
+  - PR `#2` approved commit `05cfd882d84d7b2799e4505f701c4123f3aeab33` must be landed into `origin/codex/worktree-starvla-v2-mainline`.
+- Owner (unblock):
+  - PR merge responsible owner / `origin/codex/worktree-starvla-v2-mainline` maintainer.
+- Next retry time (absolute):
+  - `2026-04-09 18:30:00 +0800 CST`
+- Next step:
+  - Re-run the same Day0 gate commands at retry time; only proceed when `MERGE_BASE_EXIT=0`.
+- Commit message:
+  - `[ALG1-FASA-20260409-005-OC] log Build-v2 Day0 merge gate blocked waiting PR#2 landing`
+
+## [2026-04-09 14:41:00 +08:00] ALG1-FASA-20260409-006-OC Build-v2 Day0 merge-state gate still blocked on PR#2 landing
+
+- Owner: OC
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Re-check Day0 merge-state gate and decide whether Build-v2 can move to Day1.
+- Evidence:
+  - Commands:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 05cfd882d84d7b2799e4505f701c4123f3aeab33 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - `git ls-remote origin refs/pull/2/head refs/pull/2/merge`
+  - Key outputs/metrics:
+    - `MERGE_BASE_EXIT=1`
+    - `05cfd882d84d7b2799e4505f701c4123f3aeab33 refs/pull/2/head`
+    - `bd4cb464269158dbeb822880c5efbcb4aeb70e7a refs/pull/2/merge`
+    - interpretation:
+      - Approved closure commit is still not an ancestor of `origin/codex/worktree-starvla-v2-mainline`.
+- Decision:
+  - Day0 gate remains unmet (`MERGE_BASE_EXIT=1`), so this round must stay `BLOCKED_WAIT_REMOTE`.
+  - No Day1 Phase1.2 sidecar-only development is allowed in this round.
+- Missing items:
+  - PR `#2` approved commit `05cfd882d84d7b2799e4505f701c4123f3aeab33` landed into `origin/codex/worktree-starvla-v2-mainline`.
+- Owner (unblock):
+  - PR merge responsible owner / `origin/codex/worktree-starvla-v2-mainline` maintainer.
+- Next retry time (absolute):
+  - `2026-04-09 16:40:46 +0800 CST`
+- Next step:
+  - Re-run the same Day0 gate commands at retry time and enter Day1 only when `MERGE_BASE_EXIT=0`.
+- Commit message:
+  - `[ALG1-FASA-20260409-006-OC] recheck Day0 gate and keep BLOCKED_WAIT_REMOTE pending PR#2 landing`
+
+## [2026-04-09 14:49:00 +08:00] ALG1-FASA-20260409-007-OC Build-v2 Day0 merge-state gate polling still blocked
+
+- Owner: OC
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Poll Day0 merge-state gate at retry point and decide if Build-v2 can leave blocking state.
+- Evidence:
+  - Commands:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 05cfd882d84d7b2799e4505f701c4123f3aeab33 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - `git ls-remote origin refs/pull/2/head refs/pull/2/merge`
+  - Key outputs/metrics:
+    - `MERGE_BASE_EXIT=1`
+    - `05cfd882d84d7b2799e4505f701c4123f3aeab33 refs/pull/2/head`
+    - `bd4cb464269158dbeb822880c5efbcb4aeb70e7a refs/pull/2/merge`
+    - interpretation:
+      - PR `#2` refs are present on remote, but approved commit is still not in `origin/codex/worktree-starvla-v2-mainline`.
+- Decision:
+  - Day0 gate is still not satisfied (`MERGE_BASE_EXIT=1`), so this round cannot enter Day1.
+  - Stop at `BLOCKED_WAIT_REMOTE` with no Phase1.2 sidecar-only development.
+- Missing items:
+  - PR `#2` approved commit `05cfd882d84d7b2799e4505f701c4123f3aeab33` merged into `origin/codex/worktree-starvla-v2-mainline`.
+- Owner (unblock):
+  - PR merge responsible owner / `origin/codex/worktree-starvla-v2-mainline` maintainer.
+- Next retry time (absolute):
+  - `2026-04-09 16:48:08 +0800 CST`
+- Next step:
+  - Re-run Day0 gate commands at retry time and only switch to Day1 when `MERGE_BASE_EXIT=0`.
+- Commit message:
+  - `[ALG1-FASA-20260409-007-OC] poll Day0 gate and keep blocked waiting PR#2 merge into base`
+
+## [2026-04-09 15:00:00 +08:00] ALG1-FASA-20260409-008-OC Phase1.2 sidecar-only offline producer + strict audit minimum closure
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Re-verify Day0 merge-state gate and, once passed, complete a Phase1.2 sidecar-only minimum loop with offline `a_outputs` producer plus strict contract audit.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/tools/build_fasa_a_outputs.py`
+    - `/Users/bazinga/code/my-starvla-v2/tools/fasa_a_outputs_audit.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Artifact package:
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_145812__ALG1-FASA-20260409-008-OC/`
+      - `run_identity.txt`
+      - `config.json`
+      - `a_outputs.jsonl`
+      - `a_outputs.audit.json`
+      - `sample_check.json`
+      - `producer_summary.json`
+      - `audit_stdout.json`
+  - Code/flow summary:
+    - Added an offline producer to transform Phase0 JSONL into sidecar `a_outputs` JSONL with frozen 7-field contract.
+    - Added strict audit script to verify field completeness, finite values, `region_logits(len=15)`, and `dynamic_embedding(len=16)`.
+    - Kept this round strictly sidecar-only with no QwenPI mainline training-chain integration.
+- Evidence:
+  - Commands:
+    - `export REPO_ROOT="$(git rev-parse --show-toplevel)" && export STARVLA_EXPECTED_REPO_ROOT="/Users/bazinga/code/my-starvla-v2" && export STARVLA_EXPECTED_VLM_SCOPE="qwen_only" && bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root && bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"`
+    - `git fetch origin --prune && git merge-base --is-ancestor 05cfd882d84d7b2799e4505f701c4123f3aeab33 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$? && git ls-remote origin refs/pull/2/head refs/pull/2/merge`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/build_fasa_a_outputs.py --input-jsonl /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase0_libero_remote_20260409/fasa_phase0_libero_h4.jsonl --output-jsonl /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_145812__ALG1-FASA-20260409-008-OC/a_outputs.jsonl --version fasa_v1 --source fasa/main --sample-check-json /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_145812__ALG1-FASA-20260409-008-OC/sample_check.json`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/fasa_a_outputs_audit.py --input-jsonl /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_145812__ALG1-FASA-20260409-008-OC/a_outputs.jsonl --output-json /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_145812__ALG1-FASA-20260409-008-OC/a_outputs.audit.json --strict`
+    - `wc -l /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_145812__ALG1-FASA-20260409-008-OC/a_outputs.jsonl`
+    - `git diff --name-only -- /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi_qwen25.yaml /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py`
+  - Key outputs/metrics:
+    - Startup gate:
+      - `REPO_CONTEXT_OK=YES`
+      - `READY_TO_DEVELOP=YES`
+    - Day0 gate:
+      - `MERGE_BASE_EXIT=0`
+      - `05cfd882d84d7b2799e4505f701c4123f3aeab33 refs/pull/2/head`
+      - `bd4cb464269158dbeb822880c5efbcb4aeb70e7a refs/pull/2/merge`
+    - Phase1.2 strict audit:
+      - `rows_total=66058`
+      - `rows_contract_ok=66058`
+      - `rows_contract_ok_ratio=1.0`
+      - `rows_region_len_mismatch=0`
+      - `rows_embedding_len_mismatch=0`
+      - `rows_nonfinite=0`
+      - `gate_pass=true`
+    - Sample contract check:
+      - `sample_keys=[delta_pred,dynamic_embedding,region_logits,risk_pred,source,trigger_logit,version]`
+      - `region_len=15`
+      - `embedding_len=16`
+      - `version=fasa_v1`
+      - `source=fasa/main`
+    - Protected files:
+      - `starVLA/config/training/starvla_train_pi_qwen25.yaml`: empty diff
+      - `docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md`: empty diff
+      - `starVLA/model/framework/QwenPI.py`: pre-existing non-empty diff, untouched in this round
+- Decision:
+  - Day0 gate has passed and Phase1.2 minimum sidecar-only offline closure is complete with strict contract audit pass.
+  - This round does not touch QwenPI mainline path and does not reopen any closed `LIBERO_DATA_ROOT` finding.
+- Next step:
+  - Let R review scripts and artifact package; if accepted, continue Phase1.2 on sidecar-only improvements (e.g., stronger producer strategy) without entering QwenPI training chain.
+- Commit message:
+  - `[ALG1-FASA-20260409-008-OC] add Phase1.2 sidecar offline a_outputs producer and strict audit package`
+
+## [2026-04-09 15:16:00 +08:00] ALG1-FASA-20260409-009-OC Phase1.2 add fallback observability and strict-missing failure gate
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Keep Phase1.2 sidecar-only flow unchanged in contract terms while adding explicit fallback observability and optional strict failure on missing supervision.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/tools/build_fasa_a_outputs.py`
+    - `/Users/bazinga/code/my-starvla-v2/tools/fasa_a_outputs_audit.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Producer updates:
+    - Added fallback observability summary fields:
+      - `rows_total`
+      - `rows_with_fallback_any`
+      - `rows_with_fallback_any_ratio`
+      - `fallback_counts` (`risk/trigger/delta/region/embed`)
+      - `rows_with_missing_pseudo_labels`
+    - Added `--strict-missing`:
+      - when enabled, rows with key supervision missing are recorded as strict-missing failures and script exits non-zero.
+    - Added `--summary-json` output path support so `producer_summary.json` is always explicit artifact.
+  - Audit updates:
+    - Added `--producer-summary-json` to ingest producer fallback statistics.
+    - Added `--max-fallback-ratio` fallback gate.
+    - In strict mode, `gate_pass` now combines:
+      - core contract checks
+      - fallback ratio gate result (when threshold provided)
+  - Artifact package:
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_151400__ALG1-FASA-20260409-009-OC/`
+      - `run_identity.txt`
+      - `config.json`
+      - `a_outputs.jsonl`
+      - `a_outputs.audit.json`
+      - `sample_check.json`
+      - `producer_summary.json`
+      - `manifest.sha256`
+      - `producer_stdout.json`
+      - `audit_stdout.json`
+- Evidence:
+  - Commands:
+    - `export REPO_ROOT="$(git rev-parse --show-toplevel)" && export STARVLA_EXPECTED_REPO_ROOT="/Users/bazinga/code/my-starvla-v2" && export STARVLA_EXPECTED_VLM_SCOPE="qwen_only" && bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root && bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"`
+    - `git fetch origin --prune && git merge-base --is-ancestor 05cfd882d84d7b2799e4505f701c4123f3aeab33 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - `git ls-remote origin refs/pull/2/head refs/pull/2/merge`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/build_fasa_a_outputs.py --input-jsonl /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase0_libero_remote_20260409/fasa_phase0_libero_h4.jsonl --output-jsonl /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_151400__ALG1-FASA-20260409-009-OC/a_outputs.jsonl --version fasa_v1 --source fasa/main --strict-missing --summary-json /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_151400__ALG1-FASA-20260409-009-OC/producer_summary.json --sample-check-json /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_151400__ALG1-FASA-20260409-009-OC/sample_check.json`
+    - `python /Users/bazinga/code/my-starvla-v2/tools/fasa_a_outputs_audit.py --input-jsonl /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_151400__ALG1-FASA-20260409-009-OC/a_outputs.jsonl --output-json /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_151400__ALG1-FASA-20260409-009-OC/a_outputs.audit.json --producer-summary-json /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_151400__ALG1-FASA-20260409-009-OC/producer_summary.json --max-fallback-ratio 0.0 --strict`
+    - `cd /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_2_outputs_20260409/p4_1_fasa_phase1_2_offline_outputs_20260409_151400__ALG1-FASA-20260409-009-OC && sha256sum run_identity.txt config.json a_outputs.jsonl a_outputs.audit.json sample_check.json producer_summary.json > manifest.sha256 && sha256sum -c manifest.sha256`
+    - `git diff --name-only -- /Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi_qwen25.yaml /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md /Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py`
+  - Key outputs/metrics:
+    - Day0 gate:
+      - `MERGE_BASE_EXIT=0`
+      - `05cfd882d84d7b2799e4505f701c4123f3aeab33 refs/pull/2/head`
+      - `bd4cb464269158dbeb822880c5efbcb4aeb70e7a refs/pull/2/merge`
+    - Producer summary:
+      - `rows_total=66058`
+      - `rows_with_fallback_any=0`
+      - `rows_with_fallback_any_ratio=0.0`
+      - `rows_with_missing_pseudo_labels=0`
+      - `fallback_counts={risk:0, trigger:0, delta:0, region:0, embed:0}`
+      - `strict_missing_enabled=true`
+      - `strict_missing_failed_rows=0`
+      - `strict_missing_pass=true`
+    - Strict audit:
+      - `rows_total=66058`
+      - `rows_contract_ok=66058`
+      - `rows_contract_ok_ratio=1.0`
+      - `rows_region_len_mismatch=0`
+      - `rows_embedding_len_mismatch=0`
+      - `rows_nonfinite=0`
+      - `fallback_summary_present=true`
+      - `max_fallback_ratio=0.0`
+      - `fallback_gate_pass=true`
+      - `fallback_gate_reason=fallback_ratio_ok:0.0<=0.0`
+      - `gate_pass=true`
+    - Manifest:
+      - `run_identity.txt: OK`
+      - `config.json: OK`
+      - `a_outputs.jsonl: OK`
+      - `a_outputs.audit.json: OK`
+      - `sample_check.json: OK`
+      - `producer_summary.json: OK`
+    - Contract sample:
+      - `sample_keys=[delta_pred,dynamic_embedding,region_logits,risk_pred,source,trigger_logit,version]`
+      - `region_len=15`
+      - `embedding_len=16`
+      - `version=fasa_v1`
+      - `source=fasa/main`
+    - Protected files:
+      - `starVLA/config/training/starvla_train_pi_qwen25.yaml`: empty diff
+      - `docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md`: empty diff
+      - `starVLA/model/framework/QwenPI.py`: pre-existing non-empty diff, untouched in this round
+- Decision:
+  - Phase1.2 now has explicit fallback observability and optional strict missing-data failure capability without changing frozen output contract or entering QwenPI mainline training path.
+- Next step:
+  - Let R review the new producer/audit controls; if accepted, downstream runs can choose stricter fallback thresholds per dataset profile.
+- Commit message:
+  - `[ALG1-FASA-20260409-009-OC] add fallback observability and strict-missing gate to Phase1.2 producer/audit`
