@@ -1,0 +1,25 @@
+{
+  "exp_id": "ALG1-FASA-20260410-019-OC",
+  "scope": "phase2.1b-018-runtime-hash-reconciliation",
+  "observed_mismatch": {
+    "runtime_config_json_field": "runtime_config.json.local_hashes.local_qwenpi",
+    "runtime_config_json_value": "3f24974c72034ae3f2e7806183d274dba5b39d0398c89e604ce74af9484cfb3c",
+    "code_sync_assert_field": "code_sync_assert.json.files.QwenPI.py.local_sha256",
+    "code_sync_assert_value": "23f388ccab53d0b1bfb1e35367014cf64f5680279e3b9198177771db1a43cd40"
+  },
+  "authoritative_consistency_source": {
+    "file": "code_sync_assert.json",
+    "reason": "Contains post-sync local/remote sha256 parity check for files used by the final successful myserver train_50/train_500 runs.",
+    "gate_used_for_consistency": "phase2_1b_code_sync_gate"
+  },
+  "root_cause_analysis": {
+    "cause": "Snapshot timing mismatch",
+    "detail": "runtime_config.json captured an earlier local QwenPI hash before later approved hotfixes in the same 018 cycle (predict_action dtype alignment and bf16->float32 numpy conversion); code_sync_assert was regenerated after final sync and therefore reflects the actual runtime code used for accepted runs."
+  },
+  "risk_assessment": {
+    "level": "Low",
+    "impact_on_gate_conclusion": "None",
+    "justification": "All acceptance gates are based on final training artifacts and post-sync hash parity in code_sync_assert; mismatch is metadata timing only."
+  },
+  "decision": "Keep 018 technical conclusion unchanged; retain original evidence files and add this reconciliation note for traceability."
+}

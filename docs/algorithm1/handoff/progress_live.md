@@ -5306,3 +5306,784 @@ Copy this block for each new entry:
   - Let R review the new producer/audit controls; if accepted, downstream runs can choose stricter fallback thresholds per dataset profile.
 - Commit message:
   - `[ALG1-FASA-20260409-009-OC] add fallback observability and strict-missing gate to Phase1.2 producer/audit`
+
+## [2026-04-09 18:01:00 +08:00] ALG1-FASA-20260409-010-OC Phase1.3 sidecar-only A-module trainability check (50/500) on myserver
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Execute Phase1.3 sidecar-only A-module training availability checks (`50-step` smoke + `500-step` stability) using the approved Phase1.2 `a_outputs` artifacts, and publish a reviewable evidence package.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/tools/train_fasa_a_outputs_check.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Artifact package:
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_3_traincheck_20260409/p4_1_fasa_phase1_3_traincheck_20260409_175747__ALG1-FASA-20260409-010-OC_server/`
+      - `run_identity.txt`
+      - `config.json`
+      - `manifest.sha256`
+      - `smoke_50/run_identity.txt`
+      - `smoke_50/config.json`
+      - `smoke_50/metrics.jsonl`
+      - `smoke_50/metrics_key_summary.json`
+      - `smoke_50/summary.jsonl`
+      - `smoke_50/train.raw.log`
+      - `stability_500/run_identity.txt`
+      - `stability_500/config.json`
+      - `stability_500/metrics.jsonl`
+      - `stability_500/metrics_key_summary.json`
+      - `stability_500/summary.jsonl`
+      - `stability_500/train.raw.log`
+- Evidence:
+  - Commands:
+    - `bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root`
+    - `bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"`
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - `ssh myserver 'hostname; pwd; whoami'`
+    - `scp train_fasa_a_outputs_check.py + input a_outputs.jsonl to myserver:/tmp/<run_id>/`
+    - `ssh myserver 'python3 train_fasa_a_outputs_check.py ... --max-steps 50 ...'`
+    - `ssh myserver 'python3 train_fasa_a_outputs_check.py ... --max-steps 500 ...'`
+    - `ssh myserver 'sha256sum -c manifest.sha256'`
+    - `scp -r myserver:/tmp/<run_id>/. -> local _remote_runs path`
+    - `rg -n -i "nan|inf|traceback|runtimeerror" train.raw.log (both groups)`
+    - `sha256sum -c manifest.sha256 (local rerun)`
+  - Key outputs/metrics:
+    - Day0 gate:
+      - `MERGE_BASE_EXIT=0`
+    - Runtime environment:
+      - `myserver python=3.10.12`
+      - `myserver numpy=1.26.3`
+    - 50-step smoke:
+      - `rows=50`
+      - `final_step=50`
+      - `all_loss_finite=true`
+      - `summary.jsonl={"steps": 50}`
+      - final losses:
+        - `loss/total=9.149900893680751`
+        - `loss/risk=0.07467290759086609`
+        - `loss/trigger=0.0011758236214518547`
+        - `loss/delta=0.06954247504472733`
+        - `loss/region=7.865890979766846`
+        - `loss/embed=1.1386187076568604`
+    - 500-step stability:
+      - `rows=500`
+      - `final_step=500`
+      - `all_loss_finite=true`
+      - `summary.jsonl={"steps": 500}`
+      - final losses:
+        - `loss/total=1.1311915171536384`
+        - `loss/risk=0.0820729210972786`
+        - `loss/trigger=3.4375974792055786e-05`
+        - `loss/delta=0.08392482995986938`
+        - `loss/region=0.9431067109107971`
+        - `loss/embed=0.02205267921090126`
+    - Log scan:
+      - both `smoke_50/train.raw.log` and `stability_500/train.raw.log` have no hits for `nan|inf|traceback|runtimeerror`
+    - Manifest:
+      - remote `sha256sum -c manifest.sha256`: all `OK`
+      - local rerun `sha256sum -c manifest.sha256`: all `OK`
+    - Protected files:
+      - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi_qwen25.yaml`: empty diff
+      - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md`: empty diff
+      - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py`: pre-existing non-empty diff, untouched in this round
+- Decision:
+  - Phase1.3 sidecar-only A-module training availability checks passed for both required step counts (`50` and `500`) with finite losses and complete artifact package.
+  - No QwenPI main training-chain integration was introduced.
+- Next step:
+  - Submit this Phase1.3 package for R review and, if accepted, proceed to longer-run sidecar-only stability checks without touching protected mainline files.
+- Commit message:
+  - `[ALG1-FASA-20260409-010-OC] add Phase1.3 sidecar A-module training-check package`
+
+
+## [2026-04-09 20:21:39 +08:00] ALG1-FASA-20260409-011-OC Phase1.4 sidecar-only long-run stability check (2k/5k) on myserver
+
+- Owner: B
+- Status: DONE
+- Objective:
+  - Execute Phase1.4 sidecar-only long-run stability checks on `myserver` using approved Phase1.2 `a_outputs.jsonl`, with `2000-step` and `5000-step` runs, complete artifact package, and strict finite-loss/log gates.
+- Changes:
+  - Files:
+    - /Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md
+  - Artifact package:
+    - /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase1_4_longrun_20260409/p4_1_fasa_phase1_4_longrun_20260409_201225__ALG1-FASA-20260409-011-OC_server/
+      - run_identity.txt
+      - config.json
+      - input_sha256_used.txt
+      - runtime.env.txt
+      - manifest.sha256
+      - manifest.check.local.log
+      - long_2k/run_identity.txt
+      - long_2k/config.json
+      - long_2k/metrics.jsonl
+      - long_2k/metrics_key_summary.json
+      - long_2k/summary.jsonl
+      - long_2k/train.raw.log
+      - long_2k/console.stdout.log
+      - long_5k/run_identity.txt
+      - long_5k/config.json
+      - long_5k/metrics.jsonl
+      - long_5k/metrics_key_summary.json
+      - long_5k/summary.jsonl
+      - long_5k/train.raw.log
+      - long_5k/console.stdout.log
+- Evidence:
+  - Commands:
+    - `bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root`
+    - `bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"`
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - `scp train_fasa_a_outputs_check.py + a_outputs.jsonl -> myserver:/tmp/<run_id>/`
+    - `ssh myserver 'python3 train_fasa_a_outputs_check.py ... --output-dir long_2k --max-steps 2000 ...'`
+    - `ssh myserver 'python3 train_fasa_a_outputs_check.py ... --output-dir long_5k --max-steps 5000 ...'`
+    - `scp -r myserver:/tmp/<run_id>/. -> local _remote_runs path`
+    - `sha256sum -c manifest.sha256`
+    - `rg -n -i "nan|inf|traceback|runtimeerror" long_2k/train.raw.log long_5k/train.raw.log long_2k/console.stdout.log long_5k/console.stdout.log`
+  - Key outputs/metrics:
+    - Day0 gate:
+      - `MERGE_BASE_EXIT=0`
+    - Input consistency:
+      - `Phase1.2 approved a_outputs sha256 = 92002b9227fcbb4f50ab23d48aefd3d49a6f996935125a6dc86f8fb00efda746`
+      - `Phase1.4 used input sha256 = 92002b9227fcbb4f50ab23d48aefd3d49a6f996935125a6dc86f8fb00efda746`
+      - `sha match = true`
+    - long_2k:
+      - `rows=2000`
+      - `final_step=2000`
+      - `all_loss_finite=true`
+      - `initial: loss/total=26.37018045783043, loss/risk=0.13535970449447632, loss/trigger=1.344301462173462, loss/delta=0.3586236536502838, loss/region=14.349183082580566, loss/embed=10.18271255493164`
+      - `final: loss/total=0.27697602190164616, loss/risk=0.07016175985336304, loss/trigger=2.2116080799605697e-05, loss/delta=0.06848461925983429, loss/region=0.12228086590766907, loss/embed=0.016026660799980164`
+      - `min: loss/total=0.23464789454556012, loss/risk=0.03828943520784378, loss/trigger=1.4861326235404704e-05, loss/delta=0.03848813846707344, loss/region=0.1117316260933876, loss/embed=0.011533079668879509`
+    - long_5k:
+      - `rows=5000`
+      - `final_step=5000`
+      - `all_loss_finite=true`
+      - `initial: loss/total=26.37018045783043, loss/risk=0.13535970449447632, loss/trigger=1.344301462173462, loss/delta=0.3586236536502838, loss/region=14.349183082580566, loss/embed=10.18271255493164`
+      - `final: loss/total=0.15107688567331934, loss/risk=0.054815057665109634, loss/trigger=7.834087227820419e-06, loss/delta=0.05092358589172363, loss/region=0.03307332471013069, loss/embed=0.01225708331912756`
+      - `min: loss/total=0.11835644975963078, loss/risk=0.03757738322019577, loss/trigger=4.794833330379333e-06, loss/delta=0.03442758321762085, loss/region=0.027880409732460976, loss/embed=0.01018134132027626`
+    - Log scan:
+      - no hits for `nan|inf|traceback|runtimeerror` in both train/raw and console logs
+    - Manifest:
+      - local `sha256sum -c manifest.sha256`: all `OK`
+    - Protected files:
+      - `starVLA/config/training/starvla_train_pi_qwen25.yaml`: empty diff
+      - `docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md`: empty diff
+      - `starVLA/model/framework/QwenPI.py`: pre-existing non-empty diff, untouched in this round
+- Decision:
+  - Phase1.4 sidecar-only long-run stability gates passed on `myserver` for both required step counts (`2000` and `5000`) with finite losses, clean log scan, and complete reproducible artifact package.
+  - No QwenPI main training-chain integration was introduced.
+- Next step:
+  - Submit this Phase1.4 package to R for review; if accepted, continue sidecar-only improvements without touching protected mainline files.
+- Commit message:
+  - `[ALG1-FASA-20260409-011-OC] add Phase1.4 sidecar long-run stability package (2k/5k)`
+
+## [2026-04-09 22:01:36 +08:00] ALG1-FASA-20260409-012-OC Phase2.0 mainline freeze-base + random-noise minimal training acceptance
+
+- Owner: B
+- Status: DONE
+- Objective:
+  - Validate the Qwen-only main training chain (not sidecar) can run under freeze-base + random-noise settings, and complete both `train_50` and `train_500` with finite loss metrics.
+- Changes:
+  - Files:
+    - /Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md
+  - Artifact package:
+    - /Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_mainline_freeze_noise_20260409/p4_1_fasa_phase2_mainline_freeze_noise_20260409_213811__ALG1-FASA-20260409-012-OC_server/
+      - run_identity.txt
+      - runtime_config_base.yaml
+      - runtime_config.json
+      - freeze_assert.json
+      - noise_assert.json
+      - manifest.sha256
+      - manifest.check.log
+      - train_50/config.yaml
+      - train_50/config.json
+      - train_50/metrics.jsonl
+      - train_50/metrics_key_summary.json
+      - train_50/summary.jsonl
+      - train_50/train.raw.log
+      - train_50/train.scan.log
+      - train_500/config.yaml
+      - train_500/config.json
+      - train_500/metrics.jsonl
+      - train_500/metrics_key_summary.json
+      - train_500/summary.jsonl
+      - train_500/train.raw.log
+      - train_500/train.scan.log
+- Evidence:
+  - Commands:
+    - `bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root`
+    - `bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"`
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - `scp starvla_train_pi_qwen25.yaml -> myserver:/tmp/<run_id>/runtime_config_base.yaml`
+    - `ssh myserver "... accelerate launch starVLA/training/train_starvla.py ... --run_id train_50 --trainer.max_train_steps 50 --trainer.freeze_modules qwen_vl_interface --framework.action_model.noise_beta_alpha 1.5 --framework.action_model.noise_beta_beta 1.0 --framework.action_model.noise_s 0.999 ..."`
+    - `ssh myserver "... accelerate launch starVLA/training/train_starvla.py ... --run_id train_500 --trainer.max_train_steps 500 --trainer.freeze_modules qwen_vl_interface --framework.action_model.noise_beta_alpha 1.5 --framework.action_model.noise_beta_beta 1.0 --framework.action_model.noise_s 0.999 ..."`
+    - `scp required artifacts back to local _remote_runs`
+    - `sha256sum -c manifest.sha256`
+    - `rg -n -i "nan|inf|traceback|runtimeerror" train_50/train.scan.log train_500/train.scan.log`
+  - Key outputs/metrics:
+    - Day0 gate:
+      - `MERGE_BASE_EXIT=0`
+    - Mainline chain proof (not sidecar):
+      - both logs contain `VLA Training :: Warming Up`
+      - trainer entrypoint: `starVLA/training/train_starvla.py` via `accelerate launch`
+    - train_50: `rows=50`, `final_step=50`, `all_loss_finite=true`
+      - `initial loss/total=1.0786817073822021`
+      - `final loss/total=1.3816702365875244`
+      - `min loss/total=0.8218193650245667`
+    - train_500: `rows=500`, `final_step=500`, `all_loss_finite=true`
+      - `initial loss/total=1.0707679986953735`
+      - `final loss/total=1.0091155767440796`
+      - `min loss/total=0.8217941522598267`
+    - Freeze gate:
+      - `freeze_modules=['qwen_vl_interface']`
+      - `frozen_params_total=3754622976`
+      - `freeze_gate_pass=true`
+    - Noise gate:
+      - `noise_beta_alpha=1.5`
+      - `noise_beta_beta=1.0`
+      - `noise_s=0.999`
+      - `noise_gate_pass=true`
+    - Log scan:
+      - `train_50/train.scan.log`: `MATCH_COUNT=0`
+      - `train_500/train.scan.log`: `MATCH_COUNT=0`
+      - note: raw logs include lexical `inf` from DeepSpeed `steps_per_print=inf` and `INFO` tokens; this is non-error noise, not non-finite training loss.
+    - Manifest:
+      - `sha256sum -c manifest.sha256`: all `OK`
+    - Protected files:
+      - `starVLA/config/training/starvla_train_pi_qwen25.yaml`: empty diff
+      - `docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md`: empty diff
+      - `starVLA/model/framework/QwenPI.py`: pre-existing non-empty diff, untouched in this round
+- Decision:
+  - Phase2.0 minimum acceptance passed: mainline training chain runs under freeze-base + random-noise settings and completes required `50/500` steps with finite losses and reproducible artifact package.
+- Next step:
+  - Submit this package for R review; if approved, continue Phase2.x without modifying protected baseline files.
+- Commit message:
+  - `[ALG1-FASA-20260409-012-OC] add Phase2.0 mainline freeze+noise minimal training acceptance package`
+
+## [2026-04-09 23:27:11 +08:00] ALG1-FASA-20260409-013-OC Phase2.1 mainline freeze+noise with A-loss decomposition acceptance (50/500)
+
+- Owner: B
+- Status: DONE
+- Objective:
+  - Complete Phase2.1 minimal acceptance on `myserver` under mainline training chain (`accelerate launch starVLA/training/train_starvla.py`), proving all of the following together:
+    - freeze-base effective (`freeze_modules=qwen_vl_interface`)
+    - noise parameters effective (`noise_beta_alpha/beta/s`)
+    - A-module pseudo-label losses are logged in metrics with required keys: `loss/risk`, `loss/trigger`, `loss/delta`, `loss/region`, `loss/embed`
+    - step gates pass for `train_50` and `train_500`
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Artifact package:
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_1_mainline_a_loss_20260409/p4_1_fasa_phase2_1_mainline_a_loss_20260409_224927__ALG1-FASA-20260409-013-OC_server/`
+      - `run_identity.txt`
+      - `runtime_config_base.yaml`
+      - `runtime_config.json`
+      - `freeze_assert.json`
+      - `noise_assert.json`
+      - `a_loss_assert.json`
+      - `manifest.sha256`
+      - `manifest.check.log`
+      - `train_50/config.yaml`
+      - `train_50/config.json`
+      - `train_50/metrics.jsonl`
+      - `train_50/metrics_key_summary.json`
+      - `train_50/summary.jsonl`
+      - `train_50/train.raw.log`
+      - `train_50/train.scan.log`
+      - `train_500/config.yaml`
+      - `train_500/config.json`
+      - `train_500/metrics.jsonl`
+      - `train_500/metrics_key_summary.json`
+      - `train_500/summary.jsonl`
+      - `train_500/train.raw.log`
+      - `train_500/train.scan.log`
+- Evidence:
+  - Day0 gate:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Remote path correction:
+    - rejected path: `/2025233147/zzq_0317/starVLA` (explicitly not used in this run)
+    - runtime base path used: `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA`
+  - Mainline training commands (myserver):
+    - `WANDB_MODE=offline PYTHONPATH=<remote_runtime_repo> CUDA_VISIBLE_DEVICES=0 /2025233147/envs/llava3d_vla_train/bin/python -m accelerate.commands.launch --num_processes 1 --mixed_precision bf16 starVLA/training/train_starvla.py --config_yaml <runtime_config_base.yaml> ...`
+    - both runs use runtime overrides for:
+      - `trainer.max_train_steps=50/500`
+      - `trainer.freeze_modules=qwen_vl_interface`
+      - `framework.action_model.noise_beta_alpha=1.5`
+      - `framework.action_model.noise_beta_beta=1.0`
+      - `framework.action_model.noise_s=0.999`
+      - `datasets.vla_data.correction_supervision_enabled=true`
+      - `datasets.vla_data.correction_dataset_jsonl=/2025233147/zzq_0317/codex_runs/p4_1_standalone_smoke_20260407_GyMhzB/artifacts/correction_dataset_with_a_outputs_v3_trigger_aligned.jsonl`
+      - `trainer.optional_loss_hooks.*` including decomposition hook enables (`risk_loss/trigger_loss/delta_loss/region_loss/embed_loss`)
+  - Acceptance outputs:
+    - `train_50`:
+      - `rows=50`, `final_step=50`, `all_loss_finite=true`
+      - required keys present and summarized in `train_50/metrics_key_summary.json`
+      - final sample: `loss/total=7.051782608032227`, `loss/risk=0.6348361372947693`, `loss/trigger=0.3638448417186737`, `loss/delta=0.0`, `loss/region=2.1225578784942627`, `loss/embed=0.0`
+    - `train_500`:
+      - `rows=500`, `final_step=500`, `all_loss_finite=true`
+      - required keys present and summarized in `train_500/metrics_key_summary.json`
+      - final sample: `loss/total=3.5772571563720703`, `loss/risk=0.5459120869636536`, `loss/trigger=0.06712103635072708`, `loss/delta=0.0`, `loss/region=0.7415798306465149`, `loss/embed=0.0`
+    - strict log scans:
+      - `train_50/train.scan.log`: `MATCH_COUNT=0` for pattern `nan|traceback|runtimeerror`
+      - `train_500/train.scan.log`: `MATCH_COUNT=0` for pattern `nan|traceback|runtimeerror`
+    - freeze gate:
+      - `frozen_params_total=3754622976`, `frozen_params_from_modules=3754622976` on both runs
+      - `freeze_assert.json: gate_pass=true`
+    - noise gate:
+      - `noise_beta_alpha=1.5`, `noise_beta_beta=1.0`, `noise_s=0.999`
+      - `noise_assert.json: gate_pass=true`
+    - a-loss gate:
+      - `a_loss_assert.json: gate_pass=true`
+    - manifest:
+      - `sha256sum -c manifest.sha256`: all `OK`
+  - Protected files check (local repo):
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/config/training/starvla_train_pi_qwen25.yaml`: unchanged in this run
+    - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md`: unchanged in this run
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py`: pre-existing local diff exists; not edited by this run
+- Decision:
+  - Phase2.1 minimal acceptance passed on `myserver` with corrected remote path and complete review package.
+  - Mainline chain runs with freeze+noise+A-loss decomposition keys in metrics for both `50` and `500` steps.
+- Next step:
+  - Submit this package to R review. If R requires non-zero enforcement specifically for `loss/delta`/`loss/embed`, add an explicit phase-2.1b gate definition before rerun.
+- Commit message:
+  - `[ALG1-FASA-20260409-013-OC] add Phase2.1 mainline A-loss (50/500) acceptance package on corrected myserver path`
+
+## [2026-04-10 10:29:33 +08:00] ALG1-FASA-20260410-014-OC Phase2.1b A-loss non-zero gate precheck
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Execute Phase2.1b data-signal precheck on `correction_dataset_jsonl` before training, and only proceed to `train_50/train_500` if non-zero supervision gates for `corrective_loss_delta` and `a_loss_embed` are provably available.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Artifact package (blocked snapshot):
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_1b_nonzero_gate_20260410/p4_1_fasa_phase2_1b_nonzero_gate_20260410_102246__ALG1-FASA-20260410-014-OC_server/`
+      - `run_identity.txt`
+      - `runtime_config.json`
+      - `data_signal_probe.json`
+      - `freeze_assert.json`
+      - `noise_assert.json`
+      - `a_loss_assert.json`
+      - `a_loss_nonzero_assert.json`
+      - `manifest.sha256`
+      - `manifest.check.log`
+- Evidence:
+  - Day0 gate:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Remote precheck failures (myserver):
+    - `ssh -o ConnectTimeout=10 myserver 'echo SSH_OK && hostname'`
+    - key output: `kex_exchange_identification: read: Connection reset by peer`
+    - `scp myserver:/2025233147/zzq_0317/.../correction_dataset_with_a_outputs_v3_trigger_aligned.jsonl <local>`
+    - key output: `Connection reset ... scp: Connection closed`
+  - Manifest:
+    - `sha256sum -c manifest.sha256`
+    - all `OK`
+- Decision:
+  - Phase2.1b is blocked before training due to remote connectivity outage to `myserver`; `data_signal_probe` cannot be reliably computed, therefore non-zero gate cannot be evaluated.
+  - Per rule, no training (`train_50`/`train_500`) was started in this round.
+- Missing items:
+  - Stable SSH/SCP connectivity to `myserver`
+  - Successful read access to `correction_dataset_jsonl` for precheck statistics generation
+- Owner:
+  - Infra/Server maintainer (`myserver` network/session gateway)
+- Next retry time (absolute):
+  - `2026-04-10 10:59:33 +0800 CST`
+- Next step:
+  - Retry Phase2.1b from data precheck step immediately after `myserver` connectivity恢复; if probe passes non-zero gate, continue to `train_50` and `train_500`.
+- Commit message:
+  - `[ALG1-FASA-20260410-014-OC] block Phase2.1b on myserver connectivity before non-zero data probe`
+
+
+## [2026-04-10 12:00:40 +08:00] ALG1-FASA-20260410-015-OC Phase2.1b recovery retry on myserver connectivity
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Execute Phase2.1b recovery flow: pass Day0 gate, recover `myserver` SSH connectivity, then run data-signal probe before any `train_50/train_500` execution.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Artifact package (blocked snapshot):
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_1b_nonzero_gate_20260410/p4_1_fasa_phase2_1b_nonzero_gate_20260410_115002__ALG1-FASA-20260410-015-OC_server/`
+      - `run_identity.txt`
+      - `runtime_config.json`
+      - `data_signal_probe.json`
+      - `a_loss_nonzero_assert.json`
+      - `connectivity_retry.log`
+      - `manifest.sha256`
+      - `manifest.check.log`
+- Evidence:
+  - Day0 gate:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Connectivity retry loop (`ssh -o BatchMode=yes -o ConnectTimeout=10 myserver 'echo SSH_OK && hostname && whoami'`):
+    - `2026-04-10 11:51:37 +0800 CST` attempt=1 -> `Connection closed` (exit=255)
+    - `2026-04-10 11:52:38 +0800 CST` attempt=2 -> `Connection reset by peer` (exit=255)
+    - `2026-04-10 11:53:38 +0800 CST` attempt=3 -> `Connection reset by peer` (exit=255)
+    - `2026-04-10 11:54:38 +0800 CST` attempt=4 -> `Connection closed` (exit=255)
+    - `2026-04-10 11:55:38 +0800 CST` attempt=5 -> `Connection closed` (exit=255)
+    - `2026-04-10 11:56:38 +0800 CST` attempt=6 -> `Connection closed` (exit=255)
+    - `2026-04-10 11:57:38 +0800 CST` attempt=7 -> `Connection closed` (exit=255)
+    - `2026-04-10 11:58:38 +0800 CST` attempt=8 -> `Connection reset by peer` (exit=255)
+    - final: `final_status=FAILED`
+  - Data precheck/training guard:
+    - `data_signal_probe.json` => `probe_executed=false`, reason=`myserver connectivity failed for all 8 retries; dataset precheck unavailable`
+    - No `train_50` / `train_500` launched in this round.
+  - Integrity:
+    - `sha256sum -c manifest.sha256` => all `OK`
+- Decision:
+  - Keep `BLOCKED_WAIT_REMOTE`. Because `myserver` connectivity did not recover after 8 retries, Phase2.1b mandatory data precheck cannot be executed, so non-zero gate cannot be evaluated and training must not start.
+- Missing items:
+  - Stable SSH connectivity to `myserver`
+  - Dataset read access on remote for Phase2.1b data-signal probe
+- Owner:
+  - Infra/Server maintainer (`myserver` gateway/network path)
+- Next retry time (absolute):
+  - `2026-04-10 12:59:39 +0800 CST`
+- Next step:
+  - At retry time, rerun Day0 gate + 8-attempt connectivity loop; only when SSH recovers, execute `data_signal_probe.json` and continue to training only if non-zero precheck passes.
+- Commit message:
+  - `[ALG1-FASA-20260410-015-OC] block Phase2.1b recovery run on repeated myserver SSH reset/close`
+
+## [2026-04-10 12:31:52 +08:00] ALG1-FASA-20260410-015-OC Phase2.1b recovery retry (round-2)
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Re-run Phase2.1b recovery flow: Day0 gate -> `myserver` connectivity retry (max 8) -> proceed to data precheck only if SSH recovers.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Artifact package (blocked snapshot):
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_1b_nonzero_gate_20260410/p4_1_fasa_phase2_1b_nonzero_gate_20260410_20260410_122359__ALG1-FASA-20260410-015-OC_server_retry/`
+      - `run_identity.txt`
+      - `runtime_config.json`
+      - `data_signal_probe.json`
+      - `a_loss_nonzero_assert.json`
+      - `connectivity_retry.log`
+      - `manifest.sha256`
+      - `manifest.check.log`
+- Evidence:
+  - Day0 gate:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Connectivity retry loop (`ssh -o BatchMode=yes -o ConnectTimeout=10 myserver 'echo SSH_OK && hostname && whoami'`):
+    - `2026-04-10 12:23:59 +0800 CST` attempt=1 -> `Connection reset by peer` (exit=255)
+    - `2026-04-10 12:24:59 +0800 CST` attempt=2 -> `Connection reset by peer` (exit=255)
+    - `2026-04-10 12:25:59 +0800 CST` attempt=3 -> `Connection reset by peer` (exit=255)
+    - `2026-04-10 12:26:59 +0800 CST` attempt=4 -> `Connection closed` (exit=255)
+    - `2026-04-10 12:27:59 +0800 CST` attempt=5 -> `Connection closed` (exit=255)
+    - `2026-04-10 12:28:59 +0800 CST` attempt=6 -> `Connection closed` (exit=255)
+    - `2026-04-10 12:29:59 +0800 CST` attempt=7 -> `Connection closed` (exit=255)
+    - `2026-04-10 12:30:59 +0800 CST` attempt=8 -> `Connection reset by peer` (exit=255)
+    - final: `final_status=FAILED`
+  - Data precheck/training guard:
+    - `data_signal_probe.json`: `probe_executed=false`, reason=`myserver connectivity failed for all 8 retries; data precheck not executable`
+    - No `train_50` / `train_500` launched in this round.
+  - Integrity:
+    - `sha256sum -c manifest.sha256` => all `OK`
+- Decision:
+  - Keep `BLOCKED_WAIT_REMOTE`. SSH connectivity to `myserver` was not recovered after 8 retries, so mandatory data precheck and non-zero gate cannot run; training remains blocked.
+- Missing items:
+  - Stable SSH connectivity to `myserver`
+  - Remote dataset read access required by Phase2.1b precheck
+- Owner:
+  - Infra/Server maintainer (`myserver` gateway/network)
+- Next retry time (absolute):
+  - `2026-04-10 13:31:31 +0800 CST`
+- Next step:
+  - At next retry time, rerun Day0 gate and the same 8-attempt connectivity loop; proceed to data precheck only when SSH恢复.
+- Commit message:
+  - `[ALG1-FASA-20260410-015-OC] keep Phase2.1b blocked after 8x myserver retry failures (round-2)`
+
+
+## [2026-04-10 12:52:58 +08:00] ALG1-FASA-20260410-015-OC Phase2.1b recovery retry (round-3, connectivity restored)
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - After myserver connectivity recovery, execute Phase2.1b precheck gate and enter training only if both non-zero conditions pass (`corrective_loss_delta_nonzero_ratio>0` and `a_loss_embed_nonzero_ratio>0`).
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Artifact package (blocked by data-signal gate):
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_1b_nonzero_gate_20260410/p4_1_fasa_phase2_1b_nonzero_gate_20260410_20260410_125107__ALG1-FASA-20260410-015-OC_server_retry_round3`
+      - `run_identity.txt`
+      - `runtime_config.json`
+      - `data_signal_probe.json`
+      - `a_loss_nonzero_assert.json`
+      - `connectivity_retry.log`
+      - `manifest.sha256`
+      - `manifest.check.log`
+- Evidence:
+  - Day0 gate:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Connectivity retry loop:
+    - command: `ssh -o BatchMode=yes -o ConnectTimeout=10 myserver 'echo SSH_OK && hostname && whoami'`
+    - attempt=1 (`2026-04-10 12:51:07 +0800 CST`) succeeded with `SSH_OK` / hostname `3tqk47rp2otgf-0` / user `root`
+    - final: `final_status=SUCCESS`
+  - Data signal probe (`data_signal_probe.json`):
+    - `rows_total=64`
+    - `corrective_loss_delta_present_ratio=0.0`
+    - `corrective_loss_delta_nonzero_ratio=0.0`
+    - `a_loss_embed_present_ratio=1.0`
+    - `a_loss_embed_nonzero_ratio=1.0`
+    - key observation: `pseudo_labels.delta_action_norm` is non-scalar in this dataset and is treated as missing by current training parser (`float(...)` coercion), so delta supervision is unavailable.
+  - Integrity:
+    - `sha256sum -c manifest.sha256` => all `OK`
+- Decision:
+  - Keep `BLOCKED_WAIT_REMOTE` due data-signal gate failure, not connectivity.
+  - Because `corrective_loss_delta_nonzero_ratio==0.0`, Phase2.1b rule requires stopping before `train_50/train_500`.
+- Missing items:
+  - Dataset-side corrective delta supervision must be available in scalar form consumable by current training parser (or equivalent approved parser update in allowed scope)
+- Owner:
+  - Data/Builder owner for correction dataset schema and supervisory signal alignment
+- Next retry time (absolute):
+  - `2026-04-10 13:52:35 +0800 CST`
+- Next step:
+  - Rebuild or remap correction delta signal so `corrective_loss_delta_nonzero_ratio>0`, then rerun Phase2.1b precheck before training.
+- Commit message:
+  - `[ALG1-FASA-20260410-015-OC] block Phase2.1b at non-zero precheck after connectivity recovery (delta signal missing)`
+
+## [2026-04-10 16:18:51 +08:00] ALG1-FASA-20260410-016-OC Phase2.1b delta parsing fix + non-zero retrain gate
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Fix `pseudo_labels.delta_action_norm` parsing mismatch (list vs scalar) in allowed scope, rerun Phase2.1b non-zero precheck, and if precheck passes, rerun mainline `train_50` + `train_500` on `myserver` under freeze+noise+A-loss hooks.
+- Changes:
+  - Code:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/optional_loss_utils.py`
+      - Added compatible coercion for `delta_action_norm` supporting scalar and sequence/tensor input.
+      - Sequence rule: aggregate finite values with `max(0, max(finite_values))`; no finite value => missing.
+  - Progress log:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+  - Artifact package:
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_1b_nonzero_gate_20260410/p4_1_fasa_phase2_1b_nonzero_gate_20260410_20260410_151814__ALG1-FASA-20260410-016-OC`
+      - `run_identity.txt`
+      - `runtime_config.json`
+      - `data_signal_probe.json`
+      - `a_loss_nonzero_assert.json`
+      - `freeze_assert.json`
+      - `noise_assert.json`
+      - `a_loss_train_nonzero_assert.json`
+      - `train_50/*`
+      - `train_500/*`
+      - `manifest.sha256`
+      - `manifest.check.log`
+- Evidence:
+  - Startup + Day0 gate:
+    - `bash tools/handoff/ensure_repo_context.sh --expect-root /Users/bazinga/code/my-starvla-v2 --expect-vlm-scope qwen_only --require-expected-root`
+      - key output: `REPO_CONTEXT_OK=YES`
+    - `MAX_OPEN_HOURS=240 bash tools/handoff/pre_dev_readiness.sh`
+      - key output: `READY_TO_DEVELOP=YES`
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+      - key output: `MERGE_BASE_EXIT=0`
+  - Day0 refs:
+    - `git ls-remote origin refs/pull/2/head refs/pull/2/merge`
+      - `05cfd882d84d7b2799e4505f701c4123f3aeab33 refs/pull/2/head`
+      - `bd4cb464269158dbeb822880c5efbcb4aeb70e7a refs/pull/2/merge`
+  - Data non-zero precheck (passed):
+    - `data_signal_probe.json`:
+      - `rows_total=64`
+      - `corrective_loss_delta_nonzero_ratio=0.9375`
+      - `a_loss_embed_nonzero_ratio=1.0`
+    - `a_loss_nonzero_assert.json`: `gate_pass=true`
+  - Mainline training executed on `myserver` (`accelerate launch starVLA/training/train_starvla.py`):
+    - `train_50`: `rows=50`, `final_step=50`, `all_loss_finite=true`
+    - `train_500`: `rows=500`, `final_step=500`, `all_loss_finite=true`
+    - log scan: `rg -n -i "nan|traceback|runtimeerror" train_50/train.raw.log train_500/train.raw.log`
+      - key output: no matches
+  - Freeze + noise gates (passed):
+    - `freeze_assert.json`: `gate_pass=true`, `frozen_params_total=3754622976 (>0)`, `freeze consistency check passed`
+    - `noise_assert.json`: `gate_pass=true`, `noise_beta_alpha=1.5`, `noise_beta_beta=1.0`, `noise_s=0.999`
+  - New non-zero train gate (failed):
+    - `a_loss_train_nonzero_assert.json`:
+      - `train_50.max_loss_delta=null`, `train_50.max_loss_embed=null`
+      - `train_500.max_loss_delta=null`, `train_500.max_loss_embed=null`
+      - `nonzero_ratio_loss_delta=0.0`, `nonzero_ratio_loss_embed=0.0` (both runs)
+      - `gate_pass=false`
+    - metrics key inspection:
+      - `loss/a_module` and `loss/corrective` are present and non-zero
+      - `loss/risk|loss/trigger|loss/delta|loss/region|loss/embed` are absent in current mainline metrics stream
+  - Integrity:
+    - `sha256sum -c manifest.sha256` => all `OK`
+- Decision:
+  - Keep `BLOCKED_WAIT_REMOTE`.
+  - Delta parser mismatch is fixed and data precheck is now passing, but Phase2.1b strict training gate still fails because current mainline metrics do not emit decomposed keys `loss/delta` and `loss/embed` (both remain missing/null in `train_50` and `train_500`).
+  - Under 2.1b rules, missing decomposed keys cannot be treated as pass even when `loss/a_module` and `loss/corrective` are non-zero.
+- Missing items:
+  - Mainline trainer metrics must expose decomposed A-loss keys (`loss/risk`, `loss/trigger`, `loss/delta`, `loss/region`, `loss/embed`) during train runs.
+  - After key exposure, rerun 2.1b to verify `max(loss/delta)>0` and `max(loss/embed)>0` for both `train_50` and `train_500`.
+- Owner:
+  - Mainline training/metrics owner (QwenPI training loop metrics emission path)
+- Next retry time (absolute):
+  - `2026-04-10 18:30:00 +0800 CST`
+- Next step:
+  - Add/restore decomposed A-loss metric emission in the mainline training metrics path (without touching protected files if policy remains), then rerun 2.1b non-zero gate package.
+- Commit message:
+  - `[ALG1-FASA-20260410-016-OC] fix delta pseudo-label parsing and rerun 2.1b; block on missing decomposed A-loss metrics`
+
+## [2026-04-10 18:17:19 +08:00] ALG1-FASA-20260410-017-OC Recover decomposed A-loss metrics in mainline (Phase2.1b)
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Restore mainline decomposed A-loss metrics (`loss/risk|loss/trigger|loss/delta|loss/region|loss/embed`) under `qwen_only` and rerun Phase2.1b acceptance.
+- Changes:
+  - Artifacts only:
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_1b_nonzero_gate_20260410/p4_1_fasa_phase2_1b_nonzero_gate_20260410_20260410_181528__ALG1-FASA-20260410-017-OC/`
+      - `decomposed_metrics_rca.json`
+      - `data_signal_probe.json`
+      - `a_loss_nonzero_assert.json`
+      - `a_loss_train_nonzero_assert.json`
+      - `run_identity.txt`
+      - `runtime_config.json`
+      - `manifest.sha256`
+      - `manifest.check.log`
+  - Progress log:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+- Evidence:
+  - Day0 gate:
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - RCA (code-level):
+    - `train_starvla.py:1412-1414` only maps two aggregate hooks:
+      - `a_loss -> loss/a_module`
+      - `corrective_loss -> loss/corrective`
+    - `train_starvla.py:1424-1452` only logs keys that exist in `output_dict[hook_key]`.
+    - `QwenPI.py:203-204` exports aggregate `a_loss` only.
+    - `QwenPI.py:243-244` exports aggregate `corrective_loss` only.
+    - `QwenPI.py:318-327` `forward` returns `{action_loss + hook_output_dict + debug_metrics}`; no decomposed loss keys returned.
+    - Prior observed run (`016`) confirms `max(loss/delta)=null`, `max(loss/embed)=null` while `loss/a_module` and `loss/corrective` are non-zero.
+  - Precheck (data side) for this round:
+    - `data_signal_probe.json`:
+      - `rows_total=64`
+      - `corrective_loss_delta_nonzero_ratio=0.9375`
+      - `a_loss_embed_nonzero_ratio=1.0`
+    - `a_loss_nonzero_assert.json`: `gate_pass=true`
+  - Train non-zero gate assert:
+    - `a_loss_train_nonzero_assert.json`: `gate_pass=false`, blocked at `RCA_BEFORE_RETRAIN`.
+  - Integrity:
+    - `sha256sum -c manifest.sha256` => all `OK`
+- Decision:
+  - Keep `BLOCKED_WAIT_REMOTE`.
+  - In current freeze boundary, decomposed A-loss metrics cannot be restored without model-side output extension in `QwenPI.py`; rerunning `train_50/500` now would deterministically reproduce missing `loss/delta` and `loss/embed`.
+- Missing items:
+  - Unfrozen/approved change path for `QwenPI.py` to emit decomposed loss terms (or equivalent model-side export path consumed by trainer).
+- Owner:
+  - Mainline model/metrics owner (`QwenPI` optional hook output path)
+- Next step:
+  - Wait for owner decision on model-side decomposed-loss export path; after that, rerun full Phase2.1b (`train_50` + `train_500`) with non-zero gate.
+- Commit message:
+  - `[ALG1-FASA-20260410-017-OC] add decomposed-metrics RCA and block 2.1b on QwenPI output freeze`
+
+## [2026-04-10 21:01:12 +08:00] ALG1-FASA-20260410-018-OC QwenPI decomposed A-loss + Phase2.1b non-zero gate rerun
+
+- Owner: B
+- Status: DONE
+- Objective:
+  - With approved QwenPI unfreeze, restore decomposed A-loss outputs in mainline training (`loss/risk|loss/trigger|loss/delta|loss/region|loss/embed`) and pass Phase2.1b non-zero training gate on `myserver` (`train_50` + `train_500`).
+- Changes:
+  - Code:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py`
+      - Exported decomposed optional losses (`a_loss_risk`, `a_loss_trigger`, `a_loss_embed`, `corrective_loss_delta`, `corrective_loss_region`) while keeping aggregate `a_loss` and `corrective_loss`.
+      - Fixed action-path dtype alignment in `predict_action` (align to action model param dtype).
+      - Fixed bf16 inference output conversion (`pred_actions -> float32 -> numpy`) to avoid eval path failure.
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/optional_loss_utils.py`
+      - Added dynamic embedding supervision extraction for standalone `a_outputs` contract with finite-safe handling.
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+      - Added decomposed metric mapping to training stream:
+        - `loss/risk <- a_loss_risk`
+        - `loss/trigger <- a_loss_trigger`
+        - `loss/delta <- corrective_loss_delta`
+        - `loss/region <- corrective_loss_region`
+        - `loss/embed <- a_loss_embed`
+      - Preserved aggregate keys (`loss/a_module`, `loss/corrective`, `loss/total`).
+  - Artifact package:
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_1b_nonzero_gate_20260410/p4_1_fasa_phase2_1b_nonzero_gate_20260410_20260410_183106__ALG1-FASA-20260410-018-OC`
+      - `run_identity.txt`
+      - `runtime_config.json`
+      - `decomposed_metrics_impl_note.json`
+      - `data_signal_probe.json`
+      - `a_loss_nonzero_assert.json`
+      - `freeze_assert.json`
+      - `noise_assert.json`
+      - `a_loss_train_nonzero_assert.json`
+      - `train_50/*`
+      - `train_500/*`
+      - `manifest.sha256`
+      - `manifest.check.log`
+  - Progress log:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+- Evidence:
+  - Day0 gate:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 4f2a76b2a65edf92143a9b43918ac69e50192c60 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Data non-zero precheck:
+    - `a_loss_nonzero_assert.json`: `gate_pass=true`
+    - `corrective_loss_delta_nonzero_ratio=0.9375`
+    - `a_loss_embed_nonzero_ratio=1.0`
+  - Mainline training execution (`accelerate launch starVLA/training/train_starvla.py`, myserver):
+    - `train_50`: `rows=50`, `final_step=50`, `all_loss_finite=true`
+    - `train_500`: `rows=500`, `final_step=500`, `all_loss_finite=true`
+  - Decomposed non-zero gate:
+    - `a_loss_train_nonzero_assert.json`:
+      - `train_50.max_loss_delta=0.390625`, `train_50.max_loss_embed=0.5546875`
+      - `train_500.max_loss_delta=0.390625`, `train_500.max_loss_embed=0.47265625`
+      - `nonzero_ratio_loss_delta=1.0`, `nonzero_ratio_loss_embed=1.0` (both runs)
+      - `gate_pass=true`
+  - Freeze/noise gates:
+    - `freeze_assert.json`: `gate_pass=true`, `freeze consistency check passed`, `frozen_params_total=3754622976 (>0)`
+    - `noise_assert.json`: `gate_pass=true` with `noise_beta_alpha=1.5`, `noise_beta_beta=1.0`, `noise_s=0.999`
+  - Log scan:
+    - `rg -n -i "nan|traceback|runtimeerror" train_50/train.raw.log train_500/train.raw.log`
+    - key output: no matches
+  - Integrity:
+    - `sha256sum -c manifest.sha256` => all `OK`
+- Decision:
+  - Phase2.1b acceptance passed under mainline freeze+noise+A-loss settings.
+  - Decomposed A-loss metrics are restored and non-zero in both `train_50` and `train_500`.
+- Next step:
+  - Ready for R review and controlled push/PR with whitelist scope.
+- Commit message:
+  - `[ALG1-FASA-20260410-018-OC] restore decomposed A-loss metrics in QwenPI and pass Phase2.1b non-zero train gates`
+
+## [2026-04-10 21:26:40 +08:00] ALG1-FASA-20260410-019-OC 018 finalize release (whitelist commit + PR)
+
+- Owner: B
+- Status: DONE
+- Objective:
+  - Finalize 018 for review release with whitelist-only commit/PR and add traceability note for the low-risk hash metadata mismatch.
+- Changes:
+  - Added traceability note (without overwriting original evidence):
+    - `/Users/bazinga/code/my-starvla-v2/_remote_runs/p4_1_fasa_phase2_1b_nonzero_gate_20260410/p4_1_fasa_phase2_1b_nonzero_gate_20260410_20260410_183106__ALG1-FASA-20260410-018-OC/hash_reconciliation_note.json`
+  - Release whitelist files:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/QwenPI.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/optional_loss_utils.py`
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/training/train_starvla.py`
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+- Evidence:
+  - Day0 gate: `MERGE_BASE_EXIT=0`
+  - Reconciliation note records mismatch:
+    - `runtime_config.json.local_hashes.local_qwenpi=3f24974c72034ae3f2e7806183d274dba5b39d0398c89e604ce74af9484cfb3c`
+    - `code_sync_assert.json.files.QwenPI.py.local_sha256=23f388ccab53d0b1bfb1e35367014cf64f5680279e3b9198177771db1a43cd40`
+  - Authoritative runtime consistency source remains `code_sync_assert.json` (local/remote parity true for QwenPI/optional_loss_utils/train_starvla).
+- Decision:
+  - Keep 018 technical acceptance unchanged.
+  - Classify hash mismatch as metadata timing issue (Low risk), no gate impact.
+- Next step:
+  - R reviews PR and decides merge window.
+- Commit message:
+  - `[ALG1-FASA-20260410-019-OC] finalize 018 handoff with hash-reconciliation note and review-ready commit`

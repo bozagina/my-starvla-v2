@@ -6,6 +6,7 @@ Qwen-GROOT Framework
 A lightweight implementation that Qwen2.5-vl + Flow-matching head to directly predict continuous actions
 Flow-matching header is copyright from GR00T N1.5, but a sample MoE inspired by PI_0
 """
+import contextlib
 from typing import List
 from tqdm import tqdm
 from typing import List, Optional, Tuple
@@ -25,6 +26,22 @@ logger = initialize_overwatch(__name__)
 # HuggingFace Default / LLaMa-2 IGNORE_INDEX (for labels)
 IGNORE_INDEX = -100
 
+ACTION_PATH_DTYPE = torch.float32
+
+
+def _runtime_autocast_context(owner, default_dtype=torch.bfloat16):
+    if not torch.cuda.is_available():
+        return contextlib.nullcontext()
+    runtime_mode = getattr(owner, "_starvla_runtime_mixed_precision", None)
+    if runtime_mode is None:
+        return torch.autocast("cuda", dtype=default_dtype)
+    runtime_mode = str(runtime_mode).strip().lower()
+    if runtime_mode in {"fp16", "float16", "16"}:
+        return torch.autocast("cuda", dtype=torch.float16)
+    if runtime_mode in {"bf16", "bfloat16"}:
+        return torch.autocast("cuda", dtype=torch.bfloat16)
+    return torch.autocast("cuda", enabled=False)
+
 def _cfg_get(cfg_obj, key: str, default=None):
     if cfg_obj is None:
         return default
@@ -43,6 +60,7 @@ def _cfg_enabled(cfg_obj, key: str, default: bool = False) -> bool:
     return bool(value)
 
 from starVLA.model.framework.base_framework import baseframework
+from starVLA.model.framework.a_module_interface import build_a_module_interface
 from starVLA.model.framework.optional_loss_utils import build_optional_hook_targets
 from starVLA.model.modules.vlm import get_vlm_model
 from starVLA.model.modules.action_model.LayerwiseFM_ActionHeader import get_action_model, LayerwiseFlowmatchingActionHead
@@ -119,6 +137,29 @@ class Qwen_PI(baseframework):
             nn.SiLU(),
             nn.Linear(aux_hidden_dim, self.chunk_len),
         )
+        a_module_cfg = _cfg_get(
+            _cfg_get(getattr(self.config, "framework", None), "a_module", None),
+            "standalone",
+            None,
+        )
+        output_contract_cfg = _cfg_get(a_module_cfg, "output_contract", None)
+        self.a_embed_dim = int(_cfg_get(output_contract_cfg, "expected_embedding_dim", 16) or 16)
+        if self.a_embed_dim <= 0:
+            self.a_embed_dim = 16
+        self.a_embed_head = nn.Sequential(
+            nn.LayerNorm(llm_hidden_size),
+            nn.Linear(llm_hidden_size, aux_hidden_dim),
+            nn.SiLU(),
+            nn.Linear(aux_hidden_dim, self.a_embed_dim),
+        )
+        self.a_module_interface = build_a_module_interface(
+            config=self.config,
+            chunk_len=self.chunk_len,
+            a_risk_head=self.a_risk_head,
+            a_trigger_head=self.a_trigger_head,
+            corrective_delta_head=self.corrective_delta_head,
+            corrective_region_head=self.corrective_region_head,
+        )
 
     def _compute_optional_hook_outputs(
         self,
@@ -135,40 +176,79 @@ class Qwen_PI(baseframework):
         targets = build_optional_hook_targets(
             examples,
             chunk_len=self.chunk_len,
+            embedding_dim=self.a_embed_dim,
             device=action_loss.device,
             dtype=action_loss.dtype,
         )
         output_dict: dict[str, torch.Tensor] = {}
         debug_metrics: dict[str, float] = {}
+        a_predictions = self.a_module_interface.predict(
+            pooled_hidden=pooled_hidden,
+            examples=examples,
+            action_loss=action_loss,
+            chunk_len=self.chunk_len,
+        )
+        debug_metrics.update(getattr(a_predictions, "debug_metrics", {}))
 
         a_cfg = _cfg_get(hook_cfg, "a_loss", None)
         if _cfg_enabled(a_cfg, "enabled", default=False):
             a_key = str(_cfg_get(a_cfg, "key", "a_loss"))
             risk_weight = float(_cfg_get(a_cfg, "risk_weight", 1.0))
             trigger_weight = float(_cfg_get(a_cfg, "trigger_weight", 1.0))
+            embed_weight = float(_cfg_get(a_cfg, "embed_weight", 1.0))
+            embed_enabled = _cfg_enabled(a_cfg, "embed_enabled", default=True)
 
-            risk_pred = self.a_risk_head(pooled_hidden).squeeze(-1)
-            trigger_logit = self.a_trigger_head(pooled_hidden).squeeze(-1)
-            a_loss = action_loss.new_zeros(())
-            target_count = 0
+            risk_pred = a_predictions.risk_pred
+            trigger_logit = a_predictions.trigger_logit
+            embed_pred = self.a_embed_head(pooled_hidden)
+            risk_loss_component = action_loss.new_zeros(())
+            trigger_loss_component = action_loss.new_zeros(())
+            embed_loss_component = action_loss.new_zeros(())
+            risk_target_count = 0
+            trigger_target_count = 0
+            embed_target_count = 0
 
             if targets["risk_mask"].any():
                 risk_mask = targets["risk_mask"]
-                a_loss = a_loss + risk_weight * F.mse_loss(
+                risk_loss_component = F.mse_loss(
                     risk_pred[risk_mask],
                     targets["risk_score"][risk_mask],
                 )
-                target_count += int(risk_mask.sum().item())
+                risk_target_count += int(risk_mask.sum().item())
             if targets["trigger_mask"].any():
                 trigger_mask = targets["trigger_mask"]
-                a_loss = a_loss + trigger_weight * F.binary_cross_entropy_with_logits(
+                trigger_loss_component = F.binary_cross_entropy_with_logits(
                     trigger_logit[trigger_mask],
                     targets["trigger_label"][trigger_mask].clamp(0.0, 1.0),
                 )
-                target_count += int(trigger_mask.sum().item())
+                trigger_target_count += int(trigger_mask.sum().item())
+            if embed_enabled and targets["embedding_mask"].any():
+                embed_mask = targets["embedding_mask"]
+                embed_loss_component = F.mse_loss(
+                    embed_pred[embed_mask],
+                    targets["dynamic_embedding"][embed_mask],
+                )
+                embed_target_count += int(embed_mask.sum().item())
 
+            weighted_risk_loss = risk_weight * risk_loss_component
+            weighted_trigger_loss = trigger_weight * trigger_loss_component
+            weighted_embed_loss = embed_weight * embed_loss_component if embed_enabled else action_loss.new_zeros(())
+            a_loss = weighted_risk_loss + weighted_trigger_loss + weighted_embed_loss
+
+            output_dict["a_loss_risk"] = weighted_risk_loss
+            output_dict["a_loss_trigger"] = weighted_trigger_loss
+            output_dict["a_loss_embed"] = weighted_embed_loss
             output_dict[a_key] = a_loss
-            debug_metrics["debug/a_loss_target_count"] = float(target_count)
+            debug_metrics["debug/a_loss_risk_target_count"] = float(risk_target_count)
+            debug_metrics["debug/a_loss_trigger_target_count"] = float(trigger_target_count)
+            debug_metrics["debug/a_loss_embed_target_count"] = float(embed_target_count)
+            debug_metrics["debug/a_loss_embed_enabled"] = 1.0 if embed_enabled else 0.0
+            debug_metrics["debug/a_loss_embed_target_coverage"] = float(
+                embed_target_count / max(1, int(targets["embedding_mask"].numel()))
+            )
+            debug_metrics["debug/a_loss_target_count"] = float(
+                risk_target_count + trigger_target_count + embed_target_count
+            )
 
         corrective_cfg = _cfg_get(hook_cfg, "corrective_loss", None)
         if _cfg_enabled(corrective_cfg, "enabled", default=False):
@@ -177,38 +257,53 @@ class Qwen_PI(baseframework):
             correction_mask_weight = float(_cfg_get(corrective_cfg, "correction_mask_weight", 1.0))
             region_prior_weight = float(_cfg_get(corrective_cfg, "region_prior_weight", 0.5))
 
-            delta_pred = self.corrective_delta_head(pooled_hidden).squeeze(-1)
-            region_logits = self.corrective_region_head(pooled_hidden)
-            corrective_loss = action_loss.new_zeros(())
-            target_count = 0
+            delta_pred = a_predictions.delta_pred
+            region_logits = a_predictions.region_logits
+            delta_component = action_loss.new_zeros(())
+            region_component = action_loss.new_zeros(())
+            delta_target_count = 0
+            correction_mask_target_count = 0
+            region_prior_target_count = 0
 
             if targets["delta_mask"].any():
                 delta_mask = targets["delta_mask"]
-                corrective_loss = corrective_loss + delta_norm_weight * F.mse_loss(
+                delta_component = delta_norm_weight * F.mse_loss(
                     delta_pred[delta_mask],
                     targets["delta_action_norm"][delta_mask],
                 )
-                target_count += int(delta_mask.sum().item())
+                delta_target_count += int(delta_mask.sum().item())
 
             if targets["correction_mask_mask"].any():
                 correction_mask = targets["correction_mask_mask"]
-                corrective_loss = corrective_loss + correction_mask_weight * F.binary_cross_entropy_with_logits(
+                region_component = region_component + correction_mask_weight * F.binary_cross_entropy_with_logits(
                     region_logits[correction_mask],
                     targets["correction_mask"][correction_mask].clamp(0.0, 1.0),
                 )
-                target_count += int(correction_mask.sum().item())
+                correction_mask_target_count += int(correction_mask.sum().item())
 
             if targets["region_prior_mask"].any():
                 region_mask = targets["region_prior_mask"]
                 region_prob = torch.sigmoid(region_logits[region_mask])
-                corrective_loss = corrective_loss + region_prior_weight * F.mse_loss(
+                region_component = region_component + region_prior_weight * F.mse_loss(
                     region_prob,
                     targets["region_prior"][region_mask].clamp(0.0, 1.0),
                 )
-                target_count += int(region_mask.sum().item())
+                region_prior_target_count += int(region_mask.sum().item())
 
+            corrective_loss = delta_component + region_component
+            output_dict["corrective_loss_delta"] = delta_component
+            output_dict["corrective_loss_region"] = region_component
             output_dict[corrective_key] = corrective_loss
-            debug_metrics["debug/corrective_loss_target_count"] = float(target_count)
+            debug_metrics["debug/corrective_loss_delta_target_count"] = float(delta_target_count)
+            debug_metrics["debug/corrective_loss_region_mask_target_count"] = float(
+                correction_mask_target_count
+            )
+            debug_metrics["debug/corrective_loss_region_prior_target_count"] = float(
+                region_prior_target_count
+            )
+            debug_metrics["debug/corrective_loss_target_count"] = float(
+                delta_target_count + correction_mask_target_count + region_prior_target_count
+            )
 
         return output_dict, debug_metrics
         
@@ -237,7 +332,10 @@ class Qwen_PI(baseframework):
 
         # Step 1: QWenVL input format
         qwen_inputs = self.qwen_vl_interface.build_qwenvl_inputs(images=batch_images, instructions=instructions)
-        with torch.autocast("cuda", dtype=torch.bfloat16):
+        runtime_mp = getattr(self, "_starvla_runtime_mixed_precision", None)
+        if runtime_mp is not None:
+            setattr(self.qwen_vl_interface, "_starvla_runtime_mixed_precision", runtime_mp)
+        with _runtime_autocast_context(self):
             qwenvl_outputs = self.qwen_vl_interface(
                 **qwen_inputs,
                 output_attentions=False,
@@ -251,10 +349,15 @@ class Qwen_PI(baseframework):
             base_hidden = vl_embs_list[-1]
 
         # Step 4: Action Expert Forward and Loss
-        with torch.autocast("cuda", dtype=torch.float32):
+        with torch.autocast("cuda", enabled=False):
+            action_model_dtype = ACTION_PATH_DTYPE
+            try:
+                action_model_dtype = next(self.action_model.parameters()).dtype
+            except Exception:
+                pass
             # 标签对齐：取最后 chunk_len 段
             actions = torch.tensor(
-                np.array(actions), device=base_hidden.device, dtype=base_hidden.dtype
+                np.array(actions), device=base_hidden.device, dtype=action_model_dtype
             )  # [B, T_full, action_dim]
             actions_target = actions[:, -(self.future_action_window_size+1):, :]  # (B, chunk_len, action_dim)
 
@@ -264,12 +367,15 @@ class Qwen_PI(baseframework):
             repeated_diffusion_steps = 2 # NO repeat for big action FM
             actions_target_repeated = actions_target.repeat(repeated_diffusion_steps, 1, 1)
             # 对每层特征做 repeat
-            vl_embs_list_repeated = [h.repeat(repeated_diffusion_steps, 1, 1) for h in vl_embs_list]
+            vl_embs_list_repeated = [
+                h.to(dtype=action_model_dtype).repeat(repeated_diffusion_steps, 1, 1)
+                for h in vl_embs_list
+            ]
             
             state_repeated = None
             if state is not None:
                 state = torch.tensor(
-                    np.array(state), device=base_hidden.device, dtype=base_hidden.dtype
+                    np.array(state), device=base_hidden.device, dtype=action_model_dtype
                 )
                 state_repeated = state.repeat(repeated_diffusion_steps, 1, 1)
 
@@ -279,7 +385,7 @@ class Qwen_PI(baseframework):
         output_dict = {"action_loss": action_loss}
         hook_output_dict, hook_debug_metrics = self._compute_optional_hook_outputs(
             examples=examples,
-            pooled_hidden=base_hidden.mean(dim=1),
+            pooled_hidden=base_hidden.to(dtype=action_model_dtype).mean(dim=1),
             action_loss=action_loss,
         )
         if hook_output_dict:
@@ -319,7 +425,10 @@ class Qwen_PI(baseframework):
     
         # Step 1: QWenVL input format
         qwen_inputs = self.qwen_vl_interface.build_qwenvl_inputs(images=batch_images, instructions=instructions)
-        with torch.autocast("cuda", dtype=torch.bfloat16):
+        runtime_mp = getattr(self, "_starvla_runtime_mixed_precision", None)
+        if runtime_mp is not None:
+            setattr(self.qwen_vl_interface, "_starvla_runtime_mixed_precision", runtime_mp)
+        with _runtime_autocast_context(self):
             qwenvl_outputs = self.qwen_vl_interface(
                 **qwen_inputs,
                 output_attentions=False,
@@ -331,12 +440,22 @@ class Qwen_PI(baseframework):
             vl_embs_list = list(all_hidden[-expected_layers:])
             base_hidden = vl_embs_list[-1]
 
-        state = torch.from_numpy(np.array(state)).to(base_hidden.device, dtype=base_hidden.dtype) if state is not None else None
+        action_model_dtype = ACTION_PATH_DTYPE
+        try:
+            action_model_dtype = next(self.action_model.parameters()).dtype
+        except Exception:
+            pass
+        state = (
+            torch.from_numpy(np.array(state)).to(base_hidden.device, dtype=action_model_dtype)
+            if state is not None
+            else None
+        )
         # Step 4: Action Expert Forward and Loss
-        with torch.autocast("cuda", dtype=torch.float32):
-            pred_actions = self.action_model.predict_action(vl_embs_list, state)  # (B, chunk_len, action_dim)
+        with torch.autocast("cuda", enabled=False):
+            action_vl_embs = [h.to(dtype=action_model_dtype) for h in vl_embs_list]
+            pred_actions = self.action_model.predict_action(action_vl_embs, state)  # (B, chunk_len, action_dim)
 
-        normalized_actions = pred_actions.detach().cpu().numpy()
+        normalized_actions = pred_actions.detach().to(dtype=torch.float32).cpu().numpy()
         return {"normalized_actions": normalized_actions}
 
 
