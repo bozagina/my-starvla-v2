@@ -46,6 +46,49 @@ def build_model_and_data(cfg, checkpoint_path: str | None = None):
     return model, dataloader
 
 
+def _to_image_views(img):
+    """Normalize payload into a list of 3D (H,W,C) numpy views."""
+    if img is None:
+        return None, "none"
+
+    if isinstance(img, np.ndarray):
+        if img.ndim == 3:
+            return [img], "single"
+        if img.ndim == 4:
+            return [img[i] for i in range(img.shape[0])], "multi_list"
+        raise ValueError(f"Unsupported ndarray image ndim={img.ndim}, shape={img.shape}")
+
+    if isinstance(img, (list, tuple)):
+        views = []
+        for i, item in enumerate(img):
+            arr = item if isinstance(item, np.ndarray) else np.array(item)
+            if arr.ndim != 3:
+                raise ValueError(
+                    f"Expected 3D view in list/tuple at index={i}, got shape={arr.shape}"
+                )
+            views.append(arr)
+        return views, "multi_tuple" if isinstance(img, tuple) else "multi_list"
+
+    arr = np.array(img)
+    if arr.ndim == 3:
+        return [arr], "single"
+    if arr.ndim == 4:
+        return [arr[i] for i in range(arr.shape[0])], "multi_list"
+    raise ValueError(f"Unsupported image payload type={type(img)} shape={arr.shape}")
+
+
+def _restore_image_payload(views, layout: str):
+    if layout == "none":
+        return None
+    if layout == "single":
+        return views[0]
+    if layout == "multi_tuple":
+        return tuple(views)
+    if layout == "multi_list":
+        return list(views)
+    raise ValueError(f"Unknown image payload layout: {layout}")
+
+
 @torch.inference_mode()
 def run_image_ablation(model, dataloader, num_batches: int = 1):
     device = next(model.parameters()).device
@@ -63,19 +106,17 @@ def run_image_ablation(model, dataloader, num_batches: int = 1):
 
         for ex in examples_with:
             img = ex.get("image", None)
-            if isinstance(img, np.ndarray) and img.ndim == 4:
-                ex["image"] = img[0]
+            if img is None:
+                continue
+            views, layout = _to_image_views(img)
+            ex["image"] = _restore_image_payload(views, layout)
         for ex in examples_without:
             img = ex.get("image", None)
             if img is None:
                 continue
-            if isinstance(img, np.ndarray) and img.ndim == 4:
-                img = img[0]
-            if isinstance(img, np.ndarray):
-                ex["image"] = np.zeros_like(img)
-            else:
-                arr = np.array(img)
-                ex["image"] = np.zeros_like(arr)
+            views, layout = _to_image_views(img)
+            zero_views = [np.zeros_like(v) for v in views]
+            ex["image"] = _restore_image_payload(zero_views, layout)
 
         out_with = model.predict_action(examples_with)
         out_without = model.predict_action(examples_without)

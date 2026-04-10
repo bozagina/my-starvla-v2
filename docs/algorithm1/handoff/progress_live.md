@@ -6114,3 +6114,92 @@ Copy this block for each new entry:
   - Push same branch and refresh PR checks/review.
 - Commit message:
   - `[ALG1-FASA-20260410-020-OC] add missing a_module_interface to fix clean-checkout import blocker`
+
+## [2026-04-10 23:08:12 +08:00] ALG1-FASA-20260410-021-OC Post-merge mainline validation + eval smoke
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - After PR #4 merge, validate on `origin/codex/worktree-starvla-v2-mainline` that A-module decomposed losses still train stably on mainline (`train_50` required + `train_500` recommended), then execute downstream eval smoke using repo-provided entrypoint.
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase2_1b-postmerge-validate-20260410`
+- Evidence:
+  - Day0:
+    - `bash tools/handoff/ensure_repo_context.sh --expect-root /Users/bazinga/code/my-starvla-v2 --expect-vlm-scope qwen_only --require-expected-root`
+      - key output: `REPO_CONTEXT_OK=YES`
+    - `MAX_OPEN_HOURS=240 bash tools/handoff/pre_dev_readiness.sh`
+      - key output: `READY_TO_DEVELOP=NO` (clean Path B worktree lacks tracked `tools/handoff/ensure_repo_context.sh`; treated as workflow-script mismatch)
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 082ce53f30b0a14a01eb8bbbcd49d3fb5a71c93a origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+      - key output: `MERGE_BASE_EXIT=0`
+  - Phase2.2-A mainline training rerun on `myserver`:
+    - base: `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA`
+    - correction dataset: `/2025233147/zzq_0317/codex_runs/p4_1_standalone_smoke_20260407_GyMhzB/artifacts/correction_dataset_with_a_outputs_v3_trigger_aligned.jsonl`
+    - `train_50` + `train_500` completed with runtime overrides:
+      - `datasets.vla_data.correction_dataset_required=true`
+      - `datasets.vla_data.correction_supervision_filter_to_index=true`
+    - gate artifacts:
+      - `train_50/metrics_key_summary.json`: `rows=50`, `final_step=50`, `all_loss_finite=true`, `max(loss/delta)=0.390625`, `max(loss/embed)=0.5`
+      - `train_500/metrics_key_summary.json`: `rows=500`, `final_step=500`, `all_loss_finite=true`, `max(loss/delta)=0.390625`, `max(loss/embed)=0.5`
+      - `a_loss_train_nonzero_assert.json`: `gate_pass=true`
+      - `freeze_assert.json`: `gate_pass=true`, `frozen_params_total=4437815808 (>0)`
+      - `noise_assert.json`: `gate_pass=true`, `noise_beta_alpha=1.5`, `noise_beta_beta=1.0`, `noise_s=0.999`
+      - `train_50/train.scan.log` + `train_500/train.scan.log`: no hits for `nan|traceback|runtimeerror`
+  - Phase2.2-B eval smoke:
+    - official candidate entrypoint: `starVLA/tools/test_image_ablation.py`
+    - command executed on `myserver` with train_50 checkpoint and `--num_batches 1`
+    - `eval_smoke.console.stdout.log` ends with:
+      - `ValueError: Expected 3D array (H,W,C), got shape=(2, 224, 224, 3)`
+    - `eval_smoke_summary.json`: `pass=false`, `blocked=true`
+  - Integrity:
+    - `sha256sum -c manifest.sha256` => all `OK` (`manifest.check.log`)
+- Decision:
+  - Keep `BLOCKED_WAIT_REMOTE`.
+  - Post-merge mainline training stability gate is passed, but Phase2.2-B eval smoke is blocked by entrypoint image-shape handling for multi-image input and cannot produce valid downstream eval metric output.
+- Missing items:
+  - Eval tooling fix/override for `starVLA/tools/test_image_ablation.py` to correctly handle current dataloader image payload shape (`(2,224,224,3)` style multi-image input).
+- Owner:
+  - Eval tooling owner (`starVLA/tools/test_image_ablation.py` maintainer / framework eval path owner)
+- Next step:
+  - After eval entrypoint shape handling is fixed (or approved equivalent official eval smoke entrypoint is provided), rerun Phase2.2-B and close 021 with `READY_FOR_R_REVIEW`.
+- Commit message:
+  - `[ALG1-FASA-20260410-021-OC] run post-merge mainline train validation and block on eval-smoke image-shape mismatch`
+
+## [2026-04-11 06:22:45 +08:00] ALG1-FASA-20260411-022-OC eval-smoke multi-image shape fix and rerun
+
+- Owner: B
+- Status: DONE
+- Objective:
+  - Fix Phase2.2-B eval smoke blocker caused by multi-image payload shape handling in `starVLA/tools/test_image_ablation.py`, then rerun official eval smoke entrypoint and close the validation loop without rerunning Phase2.2-A training.
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase2_1b-postmerge-validate-20260410`
+- Changes:
+  - Updated:
+    - `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/starVLA/tools/test_image_ablation.py`
+      - Added robust image payload normalization/restoration helpers.
+      - Supports single 3D image, list/tuple multi-view, and 4D ndarray multi-view.
+      - Keeps `examples_without` structure multi-view-aware while ensuring each view passed into `model.predict_action` is 3D `(H,W,C)`.
+- Evidence:
+  - Local static check:
+    - `python3 -m py_compile starVLA/tools/test_image_ablation.py`
+    - key output: `PY_COMPILE_OK`
+  - myserver eval smoke rerun:
+    - entrypoint: `starVLA/tools/test_image_ablation.py --num_batches 1`
+    - stdout log: `eval_smoke.console.stdout.log`
+    - log scan (`Traceback|ValueError|RuntimeError`): no hits
+    - RMS lines present:
+      - `[batch 0] action RMS with image: 1.034735`
+      - `[batch 0] action RMS difference (with vs without image): 1.440867`
+      - `[batch 0] per-sample RMS diff: [...]`
+  - Artifact integrity:
+    - `sha256sum -c manifest.sha256`
+    - key output: all `OK`
+- Decision:
+  - Phase2.2-B eval smoke blocker is resolved and rerun passed.
+  - With 021 already confirming Phase2.2-A training gates, post-merge validation loop is now closed.
+- Next step:
+  - Ready for R review / release decision on post-merge validation package.
+- Commit message:
+  - `[ALG1-FASA-20260411-022-OC] fix eval smoke multi-image payload handling and pass Phase2.2-B rerun`
