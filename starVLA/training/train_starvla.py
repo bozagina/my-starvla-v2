@@ -1206,12 +1206,25 @@ class VLATrainer(TrainerUtils):
                 grad_norm = grad_sq**0.5 if grad_count > 0 else None
             return param_norm, grad_norm
 
+        def _to_float_or_none(value):
+            try:
+                out = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(out):
+                return None
+            return out
+
         def module_grad_debug(name, module):
             info = {"n_params": 0, "n_grad": 0, "n_grad_nonzero": 0}
             if module is None:
                 metrics[f"debug/grad_info/{name}_n_params"] = 0
                 metrics[f"debug/grad_info/{name}_n_grad"] = 0
                 metrics[f"debug/grad_info/{name}_n_grad_nonzero"] = 0
+                metrics[f"debug/grad_info/{name}_hook_seen"] = 0.0
+                metrics[f"debug/grad_info/{name}_hook_l2"] = 0.0
+                metrics[f"debug/grad_info/{name}_hook_rms"] = 0.0
+                metrics[f"debug/grad_info/{name}_zero_param_grad_but_hook"] = 0.0
                 return
             for p in module.parameters():
                 if not p.requires_grad:
@@ -1226,6 +1239,17 @@ class VLATrainer(TrainerUtils):
             metrics[f"debug/grad_info/{name}_n_params"] = int(info["n_params"])
             metrics[f"debug/grad_info/{name}_n_grad"] = int(info["n_grad"])
             metrics[f"debug/grad_info/{name}_n_grad_nonzero"] = int(info["n_grad_nonzero"])
+            hook_l2 = _to_float_or_none(getattr(module, "_last_grad_l2", None))
+            hook_rms = _to_float_or_none(getattr(module, "_last_grad_rms", None))
+            hook_seen = bool(hook_l2 is not None and math.isfinite(hook_l2))
+            metrics[f"debug/grad_info/{name}_hook_seen"] = 1.0 if hook_seen else 0.0
+            metrics[f"debug/grad_info/{name}_hook_l2"] = float(hook_l2) if hook_seen else 0.0
+            metrics[f"debug/grad_info/{name}_hook_rms"] = (
+                float(hook_rms) if (hook_rms is not None and math.isfinite(hook_rms)) else 0.0
+            )
+            metrics[f"debug/grad_info/{name}_zero_param_grad_but_hook"] = (
+                1.0 if (info["n_grad"] == 0 and hook_seen) else 0.0
+            )
 
         def weight_grad_stats(module):
             if module is None:
@@ -1384,6 +1408,23 @@ class VLATrainer(TrainerUtils):
 
         strict_missing_key = _cfg_enabled(hooks_cfg, "strict_missing_key", default=False)
         total_loss = action_loss
+
+        def _coerce_hook_loss_value(hook_key: str, hook_value):
+            if isinstance(hook_value, (float, int)):
+                return torch.tensor(
+                    float(hook_value),
+                    device=action_loss.device,
+                    dtype=action_loss.dtype,
+                )
+            if torch.is_tensor(hook_value):
+                hook_loss = hook_value.to(device=action_loss.device, dtype=action_loss.dtype)
+                if hook_loss.ndim > 0:
+                    hook_loss = hook_loss.mean()
+                return hook_loss
+            raise TypeError(
+                f"optional_loss_hooks expects float/int/tensor for key={hook_key!r}, got {type(hook_value)}"
+            )
+
         hook_specs = [
             ("a_loss", "a_loss", "loss/a_module"),
             ("corrective_loss", "corrective_loss", "loss/corrective"),
@@ -1408,24 +1449,35 @@ class VLATrainer(TrainerUtils):
                 step_metrics[f"debug/{hook_name}_missing"] = 1.0
                 continue
 
-            if isinstance(hook_value, (float, int)):
-                hook_loss = torch.tensor(
-                    float(hook_value),
-                    device=action_loss.device,
-                    dtype=action_loss.dtype,
-                )
-            elif torch.is_tensor(hook_value):
-                hook_loss = hook_value.to(device=action_loss.device, dtype=action_loss.dtype)
-                if hook_loss.ndim > 0:
-                    hook_loss = hook_loss.mean()
-            else:
-                raise TypeError(
-                    f"optional_loss_hooks expects float/int/tensor for key={hook_key!r}, got {type(hook_value)}"
-                )
+            hook_loss = _coerce_hook_loss_value(hook_key, hook_value)
 
             total_loss = total_loss + scale * hook_loss
             step_metrics[metric_name] = float(hook_loss.detach().float().item())
             step_metrics[f"debug/{hook_name}_scale"] = float(scale)
+
+        decomposed_metric_specs = [
+            ("a_loss_risk", "loss/risk", "a_loss"),
+            ("a_loss_trigger", "loss/trigger", "a_loss"),
+            ("a_loss_embed", "loss/embed", "a_loss"),
+            ("corrective_loss_delta", "loss/delta", "corrective_loss"),
+            ("corrective_loss_region", "loss/region", "corrective_loss"),
+        ]
+        for hook_key, metric_name, parent_hook_name in decomposed_metric_specs:
+            parent_cfg = _cfg_get(hooks_cfg, parent_hook_name, None)
+            if not _cfg_enabled(parent_cfg, "enabled", default=False):
+                continue
+            hook_value = output_dict.get(hook_key, None)
+            if hook_value is None:
+                if strict_missing_key:
+                    raise KeyError(
+                        f"optional_loss_hooks requires decomposed key={hook_key!r} for "
+                        f"{parent_hook_name}, but model forward output does not contain it."
+                    )
+                step_metrics[f"debug/{hook_key}_missing"] = 1.0
+                continue
+            hook_loss = _coerce_hook_loss_value(hook_key, hook_value)
+            step_metrics[metric_name] = float(hook_loss.detach().float().item())
+            step_metrics[f"debug/{hook_key}_present"] = 1.0
 
         step_metrics["loss/total"] = float(total_loss.detach().float().item())
         return total_loss
