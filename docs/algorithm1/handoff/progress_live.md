@@ -6087,3 +6087,30 @@ Copy this block for each new entry:
   - R reviews PR and decides merge window.
 - Commit message:
   - `[ALG1-FASA-20260410-019-OC] finalize 018 handoff with hash-reconciliation note and review-ready commit`
+
+## [2026-04-10 21:45:58 +08:00] ALG1-FASA-20260410-020-OC fix clean-checkout import blocker (a_module_interface)
+
+- Owner: B
+- Status: DONE
+- Objective:
+  - Fix PR #4 clean-checkout import blocker by adding missing `starVLA/model/framework/a_module_interface.py` required by `QwenPI.py`.
+- Changes:
+  - Added:
+    - `/Users/bazinga/code/my-starvla-v2/starVLA/model/framework/a_module_interface.py`
+  - Updated log:
+    - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
+- Evidence:
+  - Import dependency path exists and is callable:
+    - `QwenPI.py` imports `build_a_module_interface` and initialization call remains consistent with new interface signature.
+  - Minimal compile verification:
+    - `python3 -m py_compile starVLA/model/framework/a_module_interface.py starVLA/model/framework/QwenPI.py starVLA/model/framework/optional_loss_utils.py starVLA/training/train_starvla.py`
+    - key output: success (no compile errors)
+  - Tree presence check (post-commit):
+    - `git ls-tree -r --name-only HEAD | rg '^starVLA/model/framework/a_module_interface.py$'`
+    - expected: hit
+- Decision:
+  - Import blocker resolved for clean checkout; keep PR #4 and update same branch.
+- Next step:
+  - Push same branch and refresh PR checks/review.
+- Commit message:
+  - `[ALG1-FASA-20260410-020-OC] add missing a_module_interface to fix clean-checkout import blocker`
