@@ -6462,3 +6462,59 @@ Copy this block for each new entry:
   - R 审核 028 工件包后，决定是否进入更大规模 in-loop 实验（更长步数与更大评测批次）。
 - Commit message:
   - `[ALG1-FASA-20260411-028-OC] add VDPM in-loop inference MVP path with 50/500 train+eval acceptance package`
+
+## [2026-04-12 11:15:00 +08:00] ALG1-FASA-20260412-029-OC Phase2.5b real in-loop runtime-model minimal acceptance
+
+- Owner: B
+- Status: READY_FOR_R_REVIEW
+- Objective:
+  - 在已提交 028（runtime lookup MVP）基础上，完成 Phase2.5b：将 `inloop_vdpm` 升级为 `runtime_model` 真实模型推理路径（带缓存），并完成主链路 `train_50`/`train_500` + eval smoke 验收闭环。
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase2_5b-real-inloop-20260412`
+- Evidence:
+  - Day0 gate:
+    - `git merge-base --is-ancestor 082ce53f30b0a14a01eb8bbbcd49d3fb5a71c93a origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - 环境与依赖准备（myserver）:
+    - 使用 `llava3d_vla_train` 训练环境执行主链路；
+    - 使用 `vdpm/.venv_vdpm_infer` 作为 runtime infer python，并连接 `/2025233147/envs/vdpm` 依赖后完成 `visualise` 相关导入与推理调用。
+  - 代码级修复（real in-loop runtime model）:
+    - `starVLA/model/framework/a_module_interface.py`
+      - runtime worker 从 `model(images)` 修复为官方 `model.inference(None, images=images.unsqueeze(0))`。
+      - 修复 worker 协议：加入 `req_id` 对齐、忽略非 JSON stdout 噪声行，避免请求/响应错位。
+      - `strict_missing` 报错补充 `last_runtime_error`，提高可观测性。
+  - Training gates（myserver mainline）:
+    - `train_50/metrics_key_summary.json`:
+      - `rows=5`, `final_step=50`, `all_loss_finite=true`, `gate_pass=true`
+      - `max(loss/delta)=0.15234375`, `max(loss/embed)=1.1171875`
+    - `train_500/metrics_key_summary.json`:
+      - `rows=50`, `final_step=500`, `all_loss_finite=true`, `gate_pass=true`
+      - `max(loss/delta)=0.20703125`, `max(loss/embed)=0.97265625`
+    - 汇总门禁:
+      - `a_loss_train_nonzero_assert.json`: `gate_pass=true`
+      - `freeze_assert.json`: `gate_pass=true`（`frozen_params_total=4437815808`）
+      - `noise_assert.json`: `gate_pass=true`（`noise_beta_alpha=1.5`, `noise_beta_beta=1.0`, `noise_s=0.999`）
+  - Real in-loop audit:
+    - `real_inloop_audit.json`:
+      - `vdpm_mode=inloop`, `vdpm_source=runtime_model`, `inloop_branch_hit=true`
+      - `vdpm_model_calls_total=21 (>0)`
+      - `inloop_calls=8000`, `inloop_success=8000`, `inloop_fail=0`
+      - `vdpm_fallback_policy=strict_no_precomputed`, `fallback_to_precomputed_count=0`
+      - `inloop_infer_success_ratio=1.0`, `gate_pass=true`
+  - Eval smoke（官方入口）:
+    - `starVLA/tools/test_image_ablation.py --config_yaml <runtime_config_base.yaml> --num_batches 10 ...`
+    - `eval_smoke_summary.json`: `pass=true`, `blocked=false`, `traceback/valueerror/runtimeerror=0`
+    - RMS:
+      - `action_rms_with_image_mean=1.0145399`
+      - `action_rms_difference_with_vs_without_image_mean=1.4248231999999998`
+  - AB compare（vs 028 lookup MVP）:
+    - `ab_compare_real_inloop_vs_lookup028.json`: `decision=not_worse`, `not_worse_than_lookup028=true`
+  - Integrity:
+    - `sha256sum -c manifest.sha256` -> all `OK`（`manifest.check.log`）
+- Decision:
+  - Phase2.5b real in-loop runtime-model MVP 验收通过，结论 `READY_FOR_R_REVIEW`。
+- Next step:
+  - R 审核 029 工件后，决定是否进入更长步数与更大评测批次的 real in-loop 扩展实验。
+- Commit message:
+  - `[ALG1-FASA-20260412-029-OC] add real VDPM runtime-model in-loop path and pass 50/500+eval acceptance gates`
