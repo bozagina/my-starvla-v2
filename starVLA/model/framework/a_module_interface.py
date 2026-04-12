@@ -15,6 +15,8 @@ from typing import Any
 import numpy as np
 import torch
 
+from starVLA.model.framework.a_fusion_heads import AModuleRuntimeBatch
+
 
 def _cfg_get(cfg_obj, key: str, default=None):
     if cfg_obj is None:
@@ -557,6 +559,8 @@ class AModulePredictions:
     delta_pred: torch.Tensor
     region_logits: torch.Tensor
     debug_metrics: dict[str, float]
+    dynamic_embedding_pred: torch.Tensor | None = None
+    region_logits_contract15: torch.Tensor | None = None
 
 
 class LiteAModuleInterface:
@@ -897,6 +901,64 @@ class StandaloneAModuleInterface:
             "debug/vdpm_runtime_last_error": 1.0 if self._vdpm_last_error else 0.0,
         }
 
+    def collect_runtime_batch(
+        self,
+        *,
+        examples: list[dict],
+        device: torch.device,
+        dtype: torch.dtype,
+        require_embedding: bool = False,
+    ) -> tuple[AModuleRuntimeBatch, dict[str, float]]:
+        embedding_dim = (
+            int(self.expected_embedding_dim)
+            if self.expected_embedding_dim is not None and int(self.expected_embedding_dim) > 0
+            else _REQUIRED_EMBED_LEN
+        )
+        batch_size = len(examples)
+        dynamic_embedding = torch.zeros((batch_size, embedding_dim), device=device, dtype=dtype)
+        embedding_mask = torch.zeros((batch_size,), device=device, dtype=torch.bool)
+
+        rows_with_payload = 0
+        rows_with_embedding = 0
+        rows_missing_embedding = 0
+
+        for i, example in enumerate(examples):
+            source = self._extract_source(example)
+            has_payload = bool(isinstance(source, dict) and len(source) > 0)
+            if has_payload:
+                rows_with_payload += 1
+            embedding_raw = source.get("dynamic_embedding") if isinstance(source, dict) else None
+            embedding_vec = _coerce_vector(embedding_raw, target_len=embedding_dim)
+            if embedding_vec is None:
+                rows_missing_embedding += 1
+                continue
+            dynamic_embedding[i] = embedding_vec.to(device=device, dtype=dtype)
+            embedding_mask[i] = True
+            rows_with_embedding += 1
+
+        if require_embedding and rows_missing_embedding > 0:
+            raise KeyError(
+                "Fusion A-module mode requires runtime dynamic_embedding for every row, "
+                f"missing={rows_missing_embedding}/{batch_size}."
+            )
+
+        runtime_batch = AModuleRuntimeBatch(
+            dynamic_embedding=dynamic_embedding,
+            embedding_mask=embedding_mask,
+            rows_with_payload=rows_with_payload,
+            rows_with_embedding=rows_with_embedding,
+            rows_missing_embedding=rows_missing_embedding,
+            fallback_to_precomputed_count=int(self._fallback_to_precomputed_count),
+            inloop_runtime_model_enabled=bool(self.inloop_runtime_model_enabled),
+        )
+        debug_metrics = self._inloop_debug_metrics()
+        debug_metrics["debug/vdpm_embedding_coverage"] = float(rows_with_embedding / max(1, batch_size))
+        debug_metrics["debug/inloop_runtime_model_enabled"] = (
+            1.0 if runtime_batch.inloop_runtime_model_enabled else 0.0
+        )
+        debug_metrics["debug/vdpm_fallback_to_lite"] = 0.0
+        return runtime_batch, debug_metrics
+
     def _prediction_from_examples(
         self,
         *,
@@ -1090,6 +1152,12 @@ class StandaloneAModuleInterface:
         return predictions
 
 
+class FusionAModuleInterface(StandaloneAModuleInterface):
+    """Runtime feature provider for graph-internal trainable fusion A-head."""
+
+    mode = "fusion"
+
+
 def build_a_module_interface(
     *,
     config,
@@ -1104,6 +1172,7 @@ def build_a_module_interface(
     Modes:
       - lite: use in-model lightweight heads (current default behavior)
       - standalone: read external A predictions from sample payload
+      - fusion: collect in-loop runtime features + keep external contract path available
     """
     framework_cfg = getattr(config, "framework", None)
     a_cfg = _cfg_get(framework_cfg, "a_module", None)
@@ -1118,7 +1187,7 @@ def build_a_module_interface(
     if mode == "lite":
         return lite_interface
 
-    if mode == "standalone":
+    if mode in {"standalone", "fusion"}:
         standalone_cfg = _cfg_get(a_cfg, "standalone", None)
         input_key = str(_cfg_get(standalone_cfg, "input_key", "a_outputs"))
         allow_pseudo_labels_fallback = bool(
@@ -1143,7 +1212,19 @@ def build_a_module_interface(
         vdpm_repo_root = _cfg_get(a_cfg, "vdpm_repo_root", None)
         vdpm_device = str(_cfg_get(a_cfg, "vdpm_device", "cuda:0"))
         vdpm_worker_log_path = _cfg_get(a_cfg, "vdpm_worker_log_path", None)
-        return StandaloneAModuleInterface(
+
+        interface_cls = StandaloneAModuleInterface
+        if mode == "fusion":
+            # Fusion mode is explicitly tied to frozen VDPM runtime-model features.
+            interface_cls = FusionAModuleInterface
+            vdpm_mode = "inloop"
+            vdpm_source = "runtime_model"
+            vdpm_runtime_infer_enabled = True
+            vdpm_fallback_policy = "strict_no_precomputed"
+            strict_missing = True
+            fallback_to_lite = False
+
+        return interface_cls(
             chunk_len=chunk_len,
             input_key=input_key,
             allow_pseudo_labels_fallback=allow_pseudo_labels_fallback,
@@ -1164,5 +1245,5 @@ def build_a_module_interface(
         )
 
     raise ValueError(
-        f"Unsupported framework.a_module.mode={mode!r}, expected one of ['lite', 'standalone']"
+        f"Unsupported framework.a_module.mode={mode!r}, expected one of ['lite', 'standalone', 'fusion']"
     )

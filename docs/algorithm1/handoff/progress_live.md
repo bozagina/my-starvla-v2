@@ -6518,3 +6518,129 @@ Copy this block for each new entry:
   - R 审核 029 工件后，决定是否进入更长步数与更大评测批次的 real in-loop 扩展实验。
 - Commit message:
   - `[ALG1-FASA-20260412-029-OC] add real VDPM runtime-model in-loop path and pass 50/500+eval acceptance gates`
+
+## [2026-04-12 13:02:50 +0800] ALG1-FASA-20260412-030-OC Phase2.6 real in-loop longrun + full eval gate
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - 在 029 已合并基础上完成 real in-loop 长程稳定性（train_2000/train_5000）与 full eval 闭环，并输出 Phase2.6 发布门禁证据包。
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase2_6-real-inloop-longrun-full-eval-20260412`
+- Evidence:
+  - Day0 gate:
+    - command: `git merge-base --is-ancestor a0ac7f05e6378ac892af991017a3c35eeceb3a53 origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - output: `MERGE_BASE_EXIT=0`
+  - train_2000 已在 myserver 启动并持续运行（real in-loop runtime_model, strict_no_precomputed）：
+    - remote root: `/tmp/20260412_124101__ALG1-FASA-20260412-030-OC_remote`
+    - process: `accelerate launch --num_processes=1 ... --run_id train_2000 --trainer.max_train_steps 2000`
+    - current snapshot (`real_inloop_audit_longrun.json`):
+      - rows=50, progress_from_log=502/2000
+      - max(loss/delta)=0.2079 > 0
+      - max(loss/embed)=1.1248 > 0
+      - nonzero_ratio_loss_delta=1.0, nonzero_ratio_loss_embed=1.0
+      - all_loss_finite=true
+      - vdpm_model_calls_total=21 (>0)
+      - fallback_to_precomputed_count=0
+- Decision:
+  - 由于 long-run 终态（2000/5000）与 full eval 尚未完成，当前不能判定 READY；状态保持 `BLOCKED_WAIT_REMOTE`。
+- Next step:
+  1. 等 train_2000 完成后立即启动 train_5000（同配置口径）。
+  2. 完成 full eval（LIBERO 官方入口）并生成 `eval_full_summary.json` 与 AB 对照（vs 029）。
+  3. 重建 `manifest/check` 并在全部门禁通过后切换为 `READY_FOR_R_REVIEW`。
+- Commit message:
+  - `[ALG1-FASA-20260412-030-OC] continue Phase2.6 real in-loop longrun/full-eval execution and record interim blocked status`
+
+## [2026-04-12 23:23:56 +08:00] ALG1-FASA-20260412-031-R Phase3.0R true-lite fusion A-head architecture research handoff
+
+- Owner: Codex
+- Status: DONE
+- Objective:
+  - For R thread, converge a single recommended architecture for a graph-internal trainable A-head that fuses frozen VDPM runtime-model features with Qwen pooled hidden, while preserving the frozen contract and existing gate semantics.
+- Changes:
+  - Files:
+    - `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/docs/starvla_retrofit/handoff/phase3_0r_vdpm_true_lite_a_head_research.md`
+    - `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/docs/starvla_retrofit/handoff/phase3_0r_b_thread_prompt.md`
+    - `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/docs/algorithm1/handoff/progress_live.md`
+  - Code/Config summary:
+    - Added an R-thread research handoff document comparing four fusion candidates and converging on `Q-Bridge Cross-Attention A-head` as the only recommended mainline.
+    - Added a B-thread execution prompt specifying implementation scope, protected-file constraints, required gates, and AB compare rules versus 029.
+    - Explicitly fixed the Phase3.0R engineering stance: use frozen VDPM `dynamic_embedding(16)` as fusion input, keep contract `region_logits(len=15)` + explicit adapter to train-time `chunk_len`, and prohibit silent fallback masquerading as success.
+- Evidence:
+  - Commands:
+    - `sed -n '1,320p' /Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/starVLA/model/framework/QwenPI.py`
+    - `nl -ba /Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/starVLA/model/framework/a_module_interface.py | sed -n '540,1185p'`
+    - `nl -ba /Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/starVLA/training/train_starvla.py | sed -n '1380,1715p'`
+    - `cat /Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/_remote_runs/p4_1_fasa_phase2_5b_real_inloop_20260412/20260412_102443__ALG1-FASA-20260412-029-OC/ab_compare_real_inloop_vs_lookup028.json`
+    - `cat /Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/_remote_runs/p4_1_fasa_phase2_6_real_inloop_longrun_full_eval_20260412/20260412_124101__ALG1-FASA-20260412-030-OC/train_5000/metrics_key_summary.json`
+  - Key outputs/metrics:
+    - Confirmed current `QwenPI` A-lite is still `pooled_hidden -> independent MLP heads`.
+    - Confirmed 029 real in-loop gates: `vdpm_model_calls_total=21`, `fallback_to_precomputed_count=0`, `all_loss_finite=true`, `nonzero_ratio_loss_delta=1.0`, `nonzero_ratio_loss_embed=1.0`, `not_worse_than_lookup028=true`.
+    - Confirmed 030 long-run training evidence already supports using the same gate family for 2k/5k (`all_loss_finite=true`, nonzero delta/embed, freeze/noise pass), with full eval still pending.
+- Decision:
+  - Recommend `CrossAttentionFusionAHead` as the sole mainline implementation target for B thread.
+  - Keep `Tiny Transformer Encoder Fusion A-head` only as a backup if the mainline underfits in `train_50/500`.
+- Risks/Notes:
+  - The main integration risk is the mismatch between frozen external `region_logits(len=15)` and current train-time `chunk_len`; the handoff requires an explicit adapter rather than implicit truncation.
+  - Protected files were intentionally not modified.
+- Next step:
+  - Hand the new prompt to B thread and have them implement `mode=fusion`, run `train_50/500`, and produce AB compare against 029.
+- Commit message:
+  - `[ALG1-FASA-20260412-031-R] hand off Phase3.0R fusion A-head architecture recommendation and B-thread prompt`
+
+## [2026-04-13 01:20:36 +08:00] ALG1-FASA-20260412-032-OC Phase3.0R fusion mode minimal implementation + 50/500 gate closure
+
+- Owner: B
+- Status: READY_FOR_R_REVIEW
+- Objective:
+  - Implement `framework.a_module.mode=fusion` (CrossAttentionFusionAHead) while keeping VDPM `inloop + runtime_model` frozen/out-of-graph and preserving existing optional loss key semantics (`loss/risk|trigger|delta|region|embed|a_module|corrective`).
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase3_0a-vdpm-frozen-head-20260412`
+- Evidence:
+  - Day0 gate:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 082ce53f30b0a14a01eb8bbbcd49d3fb5a71c93a origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - output: `MERGE_BASE_EXIT=0`
+  - Local code implementation and syntax check:
+    - Added `starVLA/model/framework/a_fusion_heads.py` with `AModuleRuntimeBatch`, `Region15ToChunkAdapter`, `CrossAttentionFusionAHead`.
+    - Updated `starVLA/model/framework/a_module_interface.py` for `mode=fusion` runtime feature collection + strict inloop/runtime_model constraints.
+    - Updated `starVLA/model/framework/QwenPI.py` to route optional hooks through fusion head while preserving old modes.
+    - `python3 -m py_compile ...` passed for modified framework/training files.
+  - Remote training execution (myserver):
+    - Remote clean worktree launched from `origin/codex/worktree-starvla-v2-mainline`, then patched with fusion code.
+    - `train_50` gate summary (`train_50/metrics_key_summary.json`):
+      - `rows=5`, `final_step=50`, `all_loss_finite=true`, `gate_pass=true`
+      - keys present: `loss/total|risk|trigger|delta|region|embed`
+      - `max(loss/delta)=0.0735467 > 0`, `max(loss/embed)=0.881673 > 0`
+      - `debug/a_module_mode_fusion=1.0`
+    - `train_500` gate summary (`train_500/metrics_key_summary.json`):
+      - `rows=50`, `final_step=500`, `all_loss_finite=true`, `gate_pass=true`
+      - `nonzero_ratio_loss_delta=1.0`, `nonzero_ratio_loss_embed=1.0`
+      - `max(loss/delta)=0.487299 > 0`, `max(loss/embed)=0.972854 > 0`
+      - `debug/a_module_mode_fusion=1.0`
+    - Freeze/noise/assert gates:
+      - `freeze_assert.json.gate_pass=true`, `frozen_params_total=4437815808`
+      - `noise_assert.json.gate_pass=true` (`1.5/1.0/0.999`)
+      - `a_loss_train_nonzero_assert.json.gate_pass=true`
+    - In-loop audit (`inloop_mode_audit.json`):
+      - `inloop_calls=8000`, `inloop_infer_success_ratio=1.0`, `vdpm_model_calls_total=8000`, `fallback_count=0`, `gate_pass=true`
+    - Trainable-branch audit (`trainable_branch_audit.json`):
+      - `qwen_trainable_params=0`, `a_head_trainable_params=2644232`, `vdpm_runtime_params_in_graph=0`, `gate_pass=true`
+      - note: fusion head currently in optimizer param group `base`.
+  - Eval smoke:
+    - command: `starVLA/tools/test_image_ablation.py --config_yaml <train_500/config.yaml> --num_batches 10`
+    - `eval_smoke_summary.json`: `pass=true`, `blocked=false`, `traceback/valueerror/runtimeerror=0`
+    - RMS mean: `with_image=0.9934966`, `diff(with-vs-without)=1.4095414`
+  - AB compare vs 029:
+    - `ab_compare_fusion_vs_029.json` => `decision=not_worse`, `not_worse_than_029=true`
+    - gate vector confirms: `train_50/500 gate pass`, `all_loss_finite`, `nonzero delta/embed=1.0`, `vdpm_model_calls_total>0`, `fallback_to_precomputed_count=0`, `eval pass`, `debug/a_module_mode_fusion=1.0`.
+  - Integrity:
+    - `sha256sum -c manifest.sha256` all `OK` (`manifest.check.log`)
+- Decision:
+  - Phase3.0R minimal fusion acceptance closed with `READY_FOR_R_REVIEW`.
+- Next step:
+  - Submit for R review; if approved, proceed to Phase3.0B label-side refinements and dedicated LR group split for fusion head (to avoid silent base-lr coupling).
+- Commit message:
+  - `[ALG1-FASA-20260412-032-OC] implement fusion A-head with frozen VDPM in-loop runtime-model and pass 50/500+eval gates`
