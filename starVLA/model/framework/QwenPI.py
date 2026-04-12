@@ -173,13 +173,6 @@ class Qwen_PI(baseframework):
             return {}, {}
 
         pooled_hidden = pooled_hidden.to(dtype=action_loss.dtype)
-        targets = build_optional_hook_targets(
-            examples,
-            chunk_len=self.chunk_len,
-            embedding_dim=self.a_embed_dim,
-            device=action_loss.device,
-            dtype=action_loss.dtype,
-        )
         output_dict: dict[str, torch.Tensor] = {}
         debug_metrics: dict[str, float] = {}
         a_predictions = self.a_module_interface.predict(
@@ -189,6 +182,15 @@ class Qwen_PI(baseframework):
             chunk_len=self.chunk_len,
         )
         debug_metrics.update(getattr(a_predictions, "debug_metrics", {}))
+        # Standalone in-loop mode may attach runtime `a_outputs` during predict().
+        # Build targets afterwards so embed supervision can consume that payload.
+        targets = build_optional_hook_targets(
+            examples,
+            chunk_len=self.chunk_len,
+            embedding_dim=self.a_embed_dim,
+            device=action_loss.device,
+            dtype=action_loss.dtype,
+        )
 
         a_cfg = _cfg_get(hook_cfg, "a_loss", None)
         if _cfg_enabled(a_cfg, "enabled", default=False):
