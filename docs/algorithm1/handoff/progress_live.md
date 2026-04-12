@@ -6203,3 +6203,262 @@ Copy this block for each new entry:
   - Ready for R review / release decision on post-merge validation package.
 - Commit message:
   - `[ALG1-FASA-20260411-022-OC] fix eval smoke multi-image payload handling and pass Phase2.2-B rerun`
+
+## [2026-04-11 07:18:40 +08:00] ALG1-FASA-20260411-024-OC Phase2.3 long-run train + eval (in-flight snapshot)
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Execute Phase2.3 mainline long-run validation (`train_2000` + `train_5000`) with frozen `qwen_vl_interface` and fixed noise params, then run official eval smoke (`test_image_ablation.py --num_batches 10`) to decide readiness for larger-scale experiments.
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase2_1b-postmerge-validate-20260410`
+- Evidence:
+  - Day0 gate:
+    - `git merge-base --is-ancestor 082ce53f30b0a14a01eb8bbbcd49d3fb5a71c93a origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Long-run start (myserver):
+    - run root: `/tmp/p4_1_fasa_phase2_3_longrun_eval_20260411_20260411_070144__ALG1-FASA-20260411-024-OC_remote`
+    - `train_2000` launched with freeze+noise+standalone A-loss hooks enabled.
+    - snapshot (`train_progress_snapshot.json`):
+      - `train_2000.pid=1359952`, `alive=true`, `rows=316`, `done=false`
+      - `train_5000.started=false`, `done=false`
+  - Partial gate snapshot:
+    - `train_2000/metrics_key_summary.json` (partial):
+      - `rows=316/2000`, `all_loss_finite=true`
+      - `max(loss/delta)=0.3828125 (>0)`
+      - `max(loss/embed)=0.5859375 (>0)`
+    - `a_loss_train_nonzero_assert.json`: `gate_pass=false` (incomplete run)
+    - `freeze_assert.json`: `gate_pass=false` (run incomplete)
+    - `noise_assert.json`: `gate_pass=false` (run incomplete)
+  - Error scan snapshot:
+    - `traceback_hits=0`, `runtimeerror_hits=0`
+    - `error` hits currently from albumentations version-check warnings only.
+  - Eval status:
+    - `eval_smoke_summary.json` marked blocked/deferred because required 2000/5000 long-run gates are not yet complete.
+  - Integrity:
+    - `sha256sum -c manifest.sha256` => all `OK` (see `manifest.check.log`)
+- Decision:
+  - Keep `BLOCKED_WAIT_REMOTE`.
+  - 2000/5000 long-run evidence is still in-flight; cannot yet produce the Phase2.3 final readiness conclusion for larger-scale experiments.
+- Missing items:
+  - `train_2000` completion (`rows=2000`, final artifacts)
+  - `train_5000` execution and completion (`rows=5000`, final artifacts)
+  - post-train eval smoke (`num_batches=10`) with pass/fail metrics
+- Next retry time (absolute):
+  - `2026-04-11 09:30:00 +0800 CST`
+- Commit message:
+  - `[ALG1-FASA-20260411-024-OC] start Phase2.3 long-run mainline gates and checkpoint blocked in-flight evidence`
+
+## [2026-04-11 13:47:20 +08:00] ALG1-FASA-20260411-024-OC closure supplement (Phase2.3 补包/复验)
+
+- Owner: B
+- Status: READY_FOR_R_REVIEW
+- Objective:
+  - Close 024-OC evidence gap by backfilling completed `train_5000` and eval artifacts from `myserver`, then rebuild full local gate/assert package to replace prior in-flight `BLOCKED_WAIT_REMOTE` snapshot.
+- Evidence:
+  - Day0 gate:
+    - `git merge-base --is-ancestor 082ce53f30b0a14a01eb8bbbcd49d3fb5a71c93a origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Remote completion status (backfill source):
+    - `train_2000`: `rows=2000`, `done=1`
+    - `train_5000`: `rows=5000`, `done=1`
+  - Rebuilt local gate package (same run root):
+    - `train_2000/metrics_key_summary.json`: `rows=2000`, `all_loss_finite=true`
+    - `train_5000/metrics_key_summary.json`: `rows=5000`, `all_loss_finite=true`
+    - `a_loss_train_nonzero_assert.json`: `gate_pass=true`
+      - `max(loss/delta)>0` and `max(loss/embed)>0` for both runs
+    - `freeze_assert.json`: `gate_pass=true` (both runs)
+    - `noise_assert.json`: `gate_pass=true` (both runs)
+    - `eval_smoke_summary.json`: `pass=true`, `blocked=false`
+      - `traceback/valueerror/runtimeerror` hits all `0`
+      - `num_batches=10`
+  - Integrity:
+    - `sha256sum -c manifest.sha256`
+    - key output: all `OK` (`manifest.check.log`)
+- Decision:
+  - 024-OC is closed for review; status upgraded from `BLOCKED_WAIT_REMOTE` to `READY_FOR_R_REVIEW`.
+- Next step:
+  - R performs final review on 024 closure package and decides whether to enter larger-scale experiment phase.
+- Commit message:
+  - `[ALG1-FASA-20260411-024-OC] close Phase2.3 evidence gap with train_5000/eval backfill and full gate rebuild`
+
+## [2026-04-11 14:16:30 +08:00] ALG1-FASA-20260411-026-OC Phase2.4 VDPM integration (contract-preserving) minimal acceptance
+
+- Owner: B
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - Integrate VDPM (`https://github.com/eldar/vdpm.git`) as A-output generator under contract-preserving constraints and run minimal mainline acceptance (`train_50`/`train_500` + eval smoke) only after real VDPM inference succeeds.
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase2_1b-postmerge-validate-20260410`
+- Evidence:
+  - Day0 gate:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 082ce53f30b0a14a01eb8bbbcd49d3fb5a71c93a origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Real VDPM repo sync on `myserver`:
+    - repo: `https://github.com/eldar/vdpm.git`
+    - commit: `5e2a57cf6007dfb0511a8b396a0805089b9edcc4`
+    - recorded in `vdpm_repo_info.json`
+  - Real VDPM entrypoint retry (official README path):
+    - command: `python3 visualise.py ++vis.input_video=examples/videos/camel.mp4`
+    - first attempt traceback: `ModuleNotFoundError: No module named 'cv2'`
+    - dependency retry: `python3 -m pip install opencv-python hydra-core`
+    - install log shows `ReadTimeoutError` from `files.pythonhosted.org`
+    - retry exit: `EXIT_CODE=1` with same `cv2` missing traceback
+  - Correction dataset modality probe (`/2025233147/zzq_0317/codex_runs/p4_1_standalone_smoke_20260407_GyMhzB/artifacts/correction_dataset_with_a_outputs_v3_trigger_aligned.jsonl`):
+    - first row keys: `a_outputs, action_chunk, lang, meta, pseudo_labels, remaining_chunk, schema_version, state`
+    - `rows_with_top_level_image_or_video_fields_ratio=0.0`
+    - conclusion: no direct image/video payload available for per-row VDPM visual inference mapping.
+  - Blocking package integrity:
+    - `sha256sum -c manifest.sha256`
+    - key output: all `OK` (`manifest.check.log`)
+- Decision:
+  - Keep `BLOCKED_WAIT_REMOTE`.
+  - No contract downgrade and no fallback masquerading as VDPM success were applied.
+  - Since `real_vdpm` inference is blocked, downstream `train_50`/`train_500` and eval smoke for VDPM path are not started.
+- Missing items:
+  - Runtime dependency availability on `myserver` for VDPM (`cv2`/`hydra` and full requirements install without timeout).
+  - Approved modality adapter or upstream data pipeline providing image/video-aligned inputs for correction rows.
+- Next retry condition:
+  - Re-run 026 after both blockers are resolved: dependency install succeeds and image/video modality mapping spec is provided.
+- Next retry time (absolute):
+  - `2026-04-11 16:30:00 +0800 CST`
+- Commit message:
+  - `[ALG1-FASA-20260411-026-OC] record Phase2.4 real-VDPM integration blocker package with reproducible dependency+modality evidence`
+
+## [2026-04-11 16:58:30 +08:00] ALG1-FASA-20260411-026-OC closure supplement (real VDPM + mainline acceptance)
+
+- Owner: B
+- Status: READY_FOR_R_REVIEW
+- Objective:
+  - Continue 026 after remote/network blockers were removed, complete real-VDPM contract-preserving path end-to-end: real VDPM a_outputs generation, strict contract audit, mainline `train_50`/`train_500` acceptance, eval smoke (`num_batches=10`), and A/B compare against approved heuristic baseline.
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase2_1b-postmerge-validate-20260410`
+- Evidence:
+  - Day0 gate:
+    - `git fetch origin --prune`
+    - `git merge-base --is-ancestor 082ce53f30b0a14a01eb8bbbcd49d3fb5a71c93a origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - Real VDPM inference + contract audit:
+    - runtime env used: `/2025233147/envs/vdpm` (myserver)
+    - `vdpm_infer_stats.json`: `rows_total=64`, `rows_ok=64`, `rows_failed=0`, `rows_contract_ok=64`
+    - `a_outputs_vdpm_audit.json`: `rows_contract_ok_ratio=1.0`, `rows_region_len_mismatch=0`, `rows_embedding_len_mismatch=0`, `rows_nonfinite=0`, `gate_pass=true`
+  - Mainline training rerun (VDPM correction JSONL):
+    - fixed launch style to `--key=value` dotlist args for `train_starvla.py`
+    - correction/noise/freeze/strict-shape overrides all present in saved run configs
+    - `train_50`:
+      - `TRAIN_EXIT=0`
+      - `train_50/metrics_key_summary.json`: `rows=5`, `final_step=50`, `target_steps_from_log=50`, `all_loss_finite=true`
+      - decomposed keys present and non-zero: `max_loss_delta=0.07861328125`, `max_loss_embed=1.6328125`
+    - `train_500`:
+      - `TRAIN_EXIT=0`
+      - `train_500/metrics_key_summary.json`: `rows=50`, `final_step=500`, `target_steps_from_log=500`, `all_loss_finite=true`
+      - decomposed keys present and non-zero: `max_loss_delta=0.10595703125`, `max_loss_embed=1.6484375`
+    - aggregate gates:
+      - `a_loss_train_nonzero_assert.json`: `gate_pass=true`
+      - `freeze_assert.json`: `gate_pass=true` (`frozen_params_total=4437815808` for both runs)
+      - `noise_assert.json`: `gate_pass=true` (`noise_beta_alpha=1.5`, `noise_beta_beta=1.0`, `noise_s=0.999`)
+  - Eval smoke (official entrypoint):
+    - command shape (myserver): `starVLA/tools/test_image_ablation.py --config_yaml <train_500/config.yaml> --checkpoint_path <train_500/final_model/pytorch_model.pt> --num_batches 10`
+    - `EVAL_EXIT=0`
+    - `eval_smoke_summary.json`: `pass=true`, `blocked=false`, `error_scan_hits=0`, `num_batches_reported=10`
+    - RMS lines present for batches `0..9` in `eval_smoke.console.stdout.log`
+  - A/B compare:
+    - `ab_compare.json` rebuilt against approved heuristic references (Phase1.2/2.2 artifacts)
+    - result: `not_worse_than_baseline=true`, `status=READY_FOR_R_REVIEW`
+  - Integrity:
+    - `sha256sum -c manifest.sha256`
+    - key output: all `OK` (`manifest.check.log`)
+- Decision:
+  - 026 closure package is complete and review-ready: real VDPM path now passes contract + mainline training + eval smoke + non-inferiority smoke criterion versus heuristic baseline.
+- Next step:
+  - Submit 026 package for R review; if approved, proceed to larger-scale VDPM-backed experiments.
+- Commit message:
+  - `[ALG1-FASA-20260411-026-OC] close Phase2.4 with real VDPM train/eval acceptance and AB non-inferiority smoke`
+
+## [2026-04-11 17:12:00 +08:00] ALG1-FASA-20260411-027-OC 026 evidence counting-reconciliation supplement
+
+- Owner: B
+- Status: READY_FOR_R_REVIEW
+- Objective:
+  - Clarify Phase2.4 (026) training evidence counting semantics without rerunning train/eval, resolve `rows` vs `final_step` interpretation ambiguity, and keep acceptance decision unchanged.
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase2_1b-postmerge-validate-20260410`
+- Evidence:
+  - Day0 gate:
+    - `git merge-base --is-ancestor 082ce53f30b0a14a01eb8bbbcd49d3fb5a71c93a origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - New reconciliation artifact:
+    - `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410/_remote_runs/p4_1_fasa_phase2_4_vdpm_integration_20260411/p4_1_fasa_phase2_4_vdpm_integration_20260411_140452__ALG1-FASA-20260411-026-OC/step_count_reconciliation.json`
+    - key values:
+      - `train_50.metrics_rows=5`, `train_50.final_step=50`, `target_step=50`, `completion_line_found=true`
+      - `train_500.metrics_rows=50`, `train_500.final_step=500`, `target_step=500`, `completion_line_found=true`
+      - interpretation: `rows 为采样记录条数；final_step 为训练真实步数`
+  - Gate files recheck (read-only):
+    - `a_loss_train_nonzero_assert.json`: `gate_pass=true`
+    - `freeze_assert.json`: `gate_pass=true`
+    - `noise_assert.json`: `gate_pass=true`
+    - `eval_smoke_summary.json`: `pass=true`, `blocked=false`, `error_scan_hits=0`
+  - Integrity:
+    - rebuilt `manifest.sha256` (including `step_count_reconciliation.json`)
+    - `sha256sum -c manifest.sha256` -> all `OK` (`manifest.check.log`)
+- Decision:
+  - Counting semantics are reconciled: `rows` is logger sampling count, `final_step` is actual optimization step count.
+  - 026 acceptance conclusion remains unchanged: `READY_FOR_R_REVIEW`.
+- Next step:
+  - R can review 026 with clarified counting semantics; no rerun required.
+  - For subsequent online runs, use canonical `wandb_entity=bozagina-south-china-university-of-technology`.
+- Commit message:
+  - `[ALG1-FASA-20260411-027-OC] add step-count reconciliation note for 026 and keep READY verdict`
+
+## [2026-04-11 22:25:00 +08:00] ALG1-FASA-20260411-028-OC Phase2.5 VDPM in-loop inference MVP minimal acceptance
+
+- Owner: B
+- Status: READY_FOR_R_REVIEW
+- Objective:
+  - 在不破坏现有 offline 路径前提下，新增 `inloop_vdpm` 可切换路径（`vdpm_mode=inloop`, `vdpm_source=runtime_infer`），并完成主链路 `train_50`/`train_500` + eval smoke 最小验收闭环。
+- Path:
+  - Path B worktree: `/Users/bazinga/code/my-starvla-v2__postmerge_validate_20260410`
+  - Branch: `codex/fasa-phase2_1b-postmerge-validate-20260410`
+- Evidence:
+  - Day0 gate:
+    - `git merge-base --is-ancestor 082ce53f30b0a14a01eb8bbbcd49d3fb5a71c93a origin/codex/worktree-starvla-v2-mainline; echo MERGE_BASE_EXIT=$?`
+    - key output: `MERGE_BASE_EXIT=0`
+  - In-loop mode implementation:
+    - 新增 `framework.a_module.vdpm_mode` / `framework.a_module.vdpm_source` / `framework.a_module.vdpm_runtime_jsonl` 配置读取与运行时索引缓存。
+    - `QwenPI` 中 optional hook 目标构建顺序调整为先执行 `a_module_interface.predict()`，确保 in-loop 注入的 `a_outputs.dynamic_embedding` 可被 `loss/embed` 目标消费。
+    - in-loop 指标已进入训练 metrics：`inloop_calls`, `inloop_success`, `inloop_fail`, `inloop_fallback_count`, `inloop_infer_success_ratio`, `inloop_latency_ms_mean`, `inloop_latency_ms_p95`。
+  - Training gates (myserver mainline):
+    - `train_50/metrics_key_summary.json`:
+      - `final_step=50`, `all_loss_finite=true`, `gate_pass=true`
+      - `max(loss/delta)=0.330078125`, `max(loss/embed)=0.52734375`
+    - `train_500/metrics_key_summary.json`:
+      - `final_step=500`, `all_loss_finite=true`, `gate_pass=true`
+      - `max(loss/delta)=0.33984375`, `max(loss/embed)=0.58984375`
+    - 汇总断言：
+      - `a_loss_train_nonzero_assert.json`: `gate_pass=true`
+      - `freeze_assert.json`: `gate_pass=true`
+      - `noise_assert.json`: `gate_pass=true`
+  - In-loop mode audit:
+    - `inloop_mode_audit.json`:
+      - `vdpm_mode=inloop`, `vdpm_source=runtime_infer`, `inloop_branch_hit=true`
+      - `inloop_calls=8000`, `inloop_success=8000`, `inloop_fail=0`, `inloop_fallback_count=0`, `inloop_infer_success_ratio=1.0`
+      - `gate_pass=true`
+  - Eval smoke:
+    - command: `starVLA/tools/test_image_ablation.py --config_yaml <runtime_config_base.yaml> --num_batches 10 ...`
+    - `eval_smoke_summary.json`: `pass=true`, `blocked=false`, `traceback/valueerror/runtimeerror=0`
+  - AB compare:
+    - `ab_compare_inloop_vs_offline.json` 对照 Phase2.4 offline 026 包。
+    - 结论：`not_worse_than_baseline=true`。
+  - Integrity:
+    - `sha256sum -c manifest.sha256` => all `OK` (`manifest.check.log`)
+- Decision:
+  - Phase2.5 in-loop MVP 门禁通过，状态置为 `READY_FOR_R_REVIEW`。
+- Next step:
+  - R 审核 028 工件包后，决定是否进入更大规模 in-loop 实验（更长步数与更大评测批次）。
+- Commit message:
+  - `[ALG1-FASA-20260411-028-OC] add VDPM in-loop inference MVP path with 50/500 train+eval acceptance package`
