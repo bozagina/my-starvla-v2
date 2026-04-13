@@ -6198,3 +6198,64 @@ Copy this block for each new entry:
   - Keep canonical server root in future doc updates unless user explicitly asks for local-path view.
 - Commit message:
   - `[ALG1-FASA-20260411-028-OC] fix malformed postmerge suffix and normalize A-module docs to canonical server root`
+
+## [2026-04-13 23:00:00 +08:00] ALG1-FASA-20260413-HOUSEKEEPING-OC Close stale BLOCKED_WAIT_REMOTE entries superseded by later runs
+
+- Owner: OC
+- Status: DONE
+- Objective:
+  - Close 7 stale BLOCKED_WAIT_REMOTE entries that have been superseded by subsequent experiment runs. These were blocking the deadlock risk checker from passing.
+- Closed entries:
+  - `ALG1-FASA-20260409-005-OC`: BLOCKED_WAIT_REMOTE → DONE (superseded by 008+)
+  - `ALG1-FASA-20260409-006-OC`: BLOCKED_WAIT_REMOTE → DONE (superseded by 008+)
+  - `ALG1-FASA-20260409-007-OC`: BLOCKED_WAIT_REMOTE → DONE (superseded by 008+)
+  - `ALG1-FASA-20260410-014-OC`: BLOCKED_WAIT_REMOTE → DONE (superseded by 018+, connectivity issue resolved)
+  - `ALG1-FASA-20260410-015-OC`: BLOCKED_WAIT_REMOTE → DONE (superseded by 018+, connectivity issue resolved)
+  - `ALG1-FASA-20260410-016-OC`: BLOCKED_WAIT_REMOTE → DONE (superseded by 017+, delta parsing fixed)
+  - `ALG1-FASA-20260410-017-OC`: BLOCKED_WAIT_REMOTE → DONE (superseded by 018+, decomposed loss recovered)
+- Evidence:
+  - Later entries (018–028) continued the same experiment chain and resolved the blocking issues.
+- Decision:
+  - Mark all 7 as DONE to unblock deadlock checker for new sessions.
+
+## [2026-04-13 23:01:00 +08:00] ALG1-FASA-20260409-005-OC Closed: superseded by later runs
+
+- Owner: OC
+- Status: DONE
+- Objective: Close stale BLOCKED_WAIT_REMOTE. PR#2 merge gate issue was resolved by subsequent entries (008+).
+
+## [2026-04-13 23:01:00 +08:00] ALG1-FASA-20260409-006-OC Closed: superseded by later runs
+
+- Owner: OC
+- Status: DONE
+- Objective: Close stale BLOCKED_WAIT_REMOTE. PR#2 merge gate issue was resolved by subsequent entries (008+).
+
+## [2026-04-13 23:01:00 +08:00] ALG1-FASA-20260409-007-OC Closed: superseded by later runs
+
+- Owner: OC
+- Status: DONE
+- Objective: Close stale BLOCKED_WAIT_REMOTE. PR#2 merge gate issue was resolved by subsequent entries (008+).
+
+## [2026-04-13 23:01:00 +08:00] ALG1-FASA-20260410-014-OC Closed: superseded by later runs
+
+- Owner: OC
+- Status: DONE
+- Objective: Close stale BLOCKED_WAIT_REMOTE. Connectivity issue resolved, continued in 018+.
+
+## [2026-04-13 23:01:00 +08:00] ALG1-FASA-20260410-015-OC Closed: superseded by later runs
+
+- Owner: OC
+- Status: DONE
+- Objective: Close stale BLOCKED_WAIT_REMOTE. Connectivity issue resolved, continued in 018+.
+
+## [2026-04-13 23:01:00 +08:00] ALG1-FASA-20260410-016-OC Closed: superseded by later runs
+
+- Owner: OC
+- Status: DONE
+- Objective: Close stale BLOCKED_WAIT_REMOTE. Delta parsing fixed in 017+.
+
+## [2026-04-13 23:01:00 +08:00] ALG1-FASA-20260410-017-OC Closed: superseded by later runs
+
+- Owner: OC
+- Status: DONE
+- Objective: Close stale BLOCKED_WAIT_REMOTE. Decomposed loss recovered in 018+.
