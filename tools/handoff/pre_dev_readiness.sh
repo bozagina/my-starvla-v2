@@ -100,6 +100,51 @@ else
   fail "deadlock checker missing: $DEADLOCK_CHECK"
 fi
 
+THREAD_VALIDATOR="$ROOT/tools/handoff/validate_thread_v2.py"
+THREAD_ID="${STARVLA_THREAD_ID:-}"
+
+if [[ -n "$THREAD_ID" ]]; then
+  printf "\n=== Harness v2 Thread Checks (thread=%s) ===\n" "$THREAD_ID"
+
+  case "$THREAD_ID" in
+    A-RES|A-BUILD|A-REVIEW)
+      thread_manifest="$ROOT/docs/algorithm1/handoff/manifests/a_module_current_round.yaml"
+      ;;
+    CP-RES|CP-BUILD|CP-REVIEW)
+      thread_manifest="$ROOT/docs/algorithm1/handoff/manifests/cp_current_round.yaml"
+      ;;
+    *)
+      fail "invalid STARVLA_THREAD_ID: $THREAD_ID (expected A-RES|A-BUILD|A-REVIEW|CP-RES|CP-BUILD|CP-REVIEW)"
+      thread_manifest=""
+      ;;
+  esac
+
+  if [[ -n "$thread_manifest" ]]; then
+    if [[ -f "$thread_manifest" ]]; then
+      pass "thread manifest exists: $thread_manifest"
+    else
+      fail "thread manifest missing: $thread_manifest"
+    fi
+  fi
+
+  if [[ -f "$THREAD_VALIDATOR" && -n "$PYTHON_BIN" ]]; then
+    validator_output=""
+    if validator_output=$("$PYTHON_BIN" "$THREAD_VALIDATOR" --thread-id "$THREAD_ID" --repo-root "$ROOT" 2>&1); then
+      pass "thread validator passed"
+    else
+      fail "thread validator failed"
+      printf "%s\n" "$validator_output" >&2
+    fi
+  elif [[ ! -f "$THREAD_VALIDATOR" ]]; then
+    warn "thread validator not found: $THREAD_VALIDATOR"
+  elif [[ -z "$PYTHON_BIN" ]]; then
+    warn "python interpreter not found for thread validator"
+  fi
+else
+  printf "\n=== Harness v2 Thread Checks (skipped: STARVLA_THREAD_ID unset) ===\n"
+  warn "STARVLA_THREAD_ID is not set; v2 thread checks skipped. Set to one of: A-RES A-BUILD A-REVIEW CP-RES CP-BUILD CP-REVIEW"
+fi
+
 current_branch="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
 if [[ "$current_branch" == codex/tmp-* ]]; then
   pass "current branch is tmp branch: $current_branch"

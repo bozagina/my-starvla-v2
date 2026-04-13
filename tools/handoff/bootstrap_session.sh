@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 LEGACY_PROMPT_DOC="$ROOT/docs/algorithm1/handoff/new_chat_bootstrap_command.md"
 RETROFIT_PROMPT_DOC="$ROOT/docs/starvla_retrofit/handoff/new_chat_bootstrap_compact.md"
+THREAD_V2_PROMPT_DOC="$ROOT/docs/starvla_retrofit/handoff/new_chat_bootstrap_thread_v2.md"
 PROMPT_DOC="$RETROFIT_PROMPT_DOC"
 PROGRESS_TOOL="$ROOT/tools/handoff/new_progress_entry.py"
 REPO_GUARD="$ROOT/tools/handoff/ensure_repo_context.sh"
@@ -24,6 +25,9 @@ Usage:
 
   bootstrap_session.sh prompt-retrofit
       Print the compact retrofit startup instruction for a new chat.
+
+  bootstrap_session.sh prompt-thread-v2
+      Print the Harness v2 six-thread bootstrap instruction.
 
   bootstrap_session.sh prompt-legacy
       Print the legacy algorithm1 startup instruction.
@@ -113,6 +117,9 @@ case "$cmd" in
     ;;
   prompt-retrofit)
     print_prompt "$RETROFIT_PROMPT_DOC"
+    ;;
+  prompt-thread-v2)
+    print_prompt "$THREAD_V2_PROMPT_DOC"
     ;;
   prompt-legacy)
     print_prompt "$LEGACY_PROMPT_DOC"

@@ -1,0 +1,111 @@
+schema_version: harness_v2_thread_manifest_v1
+thread_family: corrective-policy
+round_id: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+status: BLOCKED_WAIT_UPSTREAM
+summary: >
+  Corrective-policy thread family bootstrap. All implementation threads remain
+  blocked until A-REVIEW issues an explicit downstream-usability verdict
+  (usable_for_downstream = yes|conditional).
+
+global_anchors:
+  repo_scope: qwen_only
+  mainline_vlm: qwen25_authoritative
+  progress_log: docs/algorithm1/handoff/progress_live.md
+  acceptance_evidence:
+    - config.yaml
+    - metrics.jsonl
+    - summary.jsonl
+    - train.log
+    - train.raw.log
+
+contracts:
+  consume:
+    - a_outputs_current_reviewed
+  emit:
+    - delta_action_v0_draft
+
+upstream_gate:
+  required_verdict: >
+    A-REVIEW must have emitted usable_for_downstream = yes|conditional
+    in the A-module current round manifest or progress ledger.
+  verdict_source: docs/algorithm1/handoff/manifests/a_module_current_round.yaml
+  current_verdict: pending
+
+threads:
+  - thread_id: CP-RES
+    role: RES
+    current_gate: waiting_for_a_review_release
+    owner: OC
+    status: BLOCKED_WAIT_UPSTREAM
+    baseline_anchor:
+      vlm: qwen25_authoritative
+      a_output_contract: pending_a_review
+      schema: p1_shared_builder_v1
+    allowed_paths:
+      - docs/algorithm1/handoff/**
+      - docs/starvla_retrofit/handoff/**
+      - tools/*audit*.py
+    required_artifacts:
+      - policy RFC
+      - interface assumptions doc
+      - blocked items list
+    blocking_conditions:
+      - A-REVIEW has not released downstream usability verdict
+    handoff_to:
+      - CP-BUILD
+      - CP-REVIEW
+
+  - thread_id: CP-BUILD
+    role: BUILD
+    current_gate: waiting_for_a_review_release
+    owner: OC
+    status: BLOCKED_WAIT_UPSTREAM
+    baseline_anchor:
+      vlm: qwen25_authoritative
+      a_output_contract: pending_a_review
+      schema: p1_shared_builder_v1
+    allowed_paths:
+      - starVLA/model/framework/**
+      - starVLA/training/**
+      - tools/**
+      - docs/algorithm1/handoff/**
+      - docs/starvla_retrofit/handoff/**
+    required_artifacts:
+      - config diff
+      - local smoke evidence
+      - changed-file handoff note
+    blocking_conditions:
+      - A-REVIEW has not released downstream usability verdict
+      - upstream A-output contract unresolved
+      - remote evidence required for acceptance
+    handoff_to:
+      - CP-REVIEW
+
+  - thread_id: CP-REVIEW
+    role: REVIEW
+    current_gate: waiting_for_a_review_release
+    owner: OC
+    status: BLOCKED_WAIT_UPSTREAM
+    baseline_anchor:
+      vlm: qwen25_authoritative
+      acceptance_rule: evidence_only
+      schema: p1_shared_builder_v1
+    allowed_paths:
+      - docs/algorithm1/handoff/**
+      - docs/starvla_retrofit/handoff/**
+      - tools/*audit*.py
+      - tools/handoff/**
+    required_artifacts:
+      - findings list
+      - artifact checklist
+      - pass/fail verdict
+    blocking_conditions:
+      - A-REVIEW has not released downstream usability verdict
+      - missing upstream artifacts
+    handoff_to: []
+
+downstream_rule:
+  cp_build_start_condition: >
+    CP-BUILD must stay BLOCKED_WAIT_UPSTREAM until A-REVIEW explicitly states
+    usable_for_downstream = yes|conditional in the A-module manifest or
+    progress ledger. No verbal approvals accepted.
