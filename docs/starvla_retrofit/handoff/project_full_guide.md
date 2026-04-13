@@ -146,6 +146,68 @@ Episode = {
 | `version` | string | schema 版本标签 |
 | `source` | string | 生成器来源标识 |
 
+### 4.5 伪标签升级：从代理标签到结果标签（Outcome Labels）
+
+> 详细设计文档：`docs/starvla_retrofit/handoff/phase3_0b_outcome_label_upgrade_spec.md`
+
+**当前伪标签存在的核心问题**：
+
+当前 `risk / trigger / region` 的语义主要来自相邻动作差分 `delta_t`，而不是"未来执行结果"。这导致三类结构性缺陷：
+
+| 问题 | 说明 |
+|---|---|
+| **风险定义错位** | `risk_score = max(delta_norm)` 学到的是"动作变化幅度"而不是"失败风险"。低动作差但高失败风险的样本（如观测延迟导致抓空）会被漏判 |
+| **trigger 退化** | `trigger_label = max(delta_norm >= q75)`，只要 delta\_norm 非空几乎总为 1；全零动作差分也会得到 trigger=1 |
+| **region 被污染** | `region_target_15` 来自 `max(prior, mask)` 的重采样，一旦 correction\_mask 退化为全 1，region 也失去定位能力 |
+
+**升级目标（Phase3.0B）**：
+
+将标签语义从"动作差分代理"升级为"未来结果定义"：
+
+- `risk_score` → 未来窗口 $H$ 内的失败/失稳风险
+- `trigger_label` → 是否需要介入/重规划
+- `delta_action_norm` → 最小必要纠偏强度（而非动作内部抖动）
+- `region_target_15` → 未来 chunk 中真正与不良结果相关的时间区域
+
+**推荐方案：Hybrid Outcome Labels**
+
+定义未来窗口 $H$（建议起始 $H=4$），对每个未来步 $k \in [1, H]$：
+
+$$
+f_k = \mathbb{1}[\text{到 } t+k \text{ 时已失败}], \quad d_k = \text{clip}\left(\frac{\|s_{exec}(t+k) - s_{ref}(t+k)\|_W}{\tau_s},\ 0,\ 1\right)
+$$
+
+$$
+\text{risk\_score} = \text{clip}\left(\max\left(\max_k f_k,\ q_{90}(d_{1:H})\right),\ 0,\ 1\right)
+$$
+
+$$
+\text{trigger\_label} = \mathbb{1}\left[\max_k f_k = 1\ \text{or}\ q_{90}(d_{1:H}) > \alpha_d\right], \quad \alpha_d = 0.35
+$$
+
+$$
+\text{region\_target\_15}[i] = \max_{k \in \text{bin}_i} c_k, \quad c_k = \max(f_k, d_k)
+$$
+
+**关键设计原则**：
+
+1. 保持字段名兼容，减少主链路改动
+2. 先改构建逻辑和审计逻辑，不先改模型结构
+3. 先做监督学习，不先上 RL
+4. `future_state` 已在数据中回填，应真正参与标签定义
+
+**升级验收标准**：
+
+| 指标 | 门限 |
+|---|---|
+| 零差分样本误触发率 | < 1% |
+| `trigger_label` 正样率 | 1% ~ 30% |
+| `region_target_15` 平均激活 bin 数 | < 5/15 |
+| 500-step 所有分解 loss 有限且非退化 | 全通过 |
+| `Success@LIBERO` 不劣于当前基线 | > -2pp |
+
+**当前状态**：Phase3.0B 设计已完成（v0.9），尚未进入代码实现。改动范围主要是 `tools/build_fasa_dataset.py`、`tools/build_fasa_a_outputs.py` 和审计脚本，不需要改模型结构。
+
 ---
 
 ## 五、A 模块详解
@@ -485,6 +547,7 @@ A 模块是"诊断器"，corrective policy 是"治疗器"。A 告诉你"哪里�
 | 文档 | 定位 |
 |---|---|
 | `docs/starvla_retrofit/handoff/star_vla改造与统一伪标签生成任务书.md` | 工程总任务书 |
+| `docs/starvla_retrofit/handoff/phase3_0b_outcome_label_upgrade_spec.md` | 伪标签升级设计（outcome labels，Phase3.0B） |
 | `docs/algorithm1/handoff/a_module_newcomer_guide.md` | A 模块新手指南 |
 | `docs/algorithm1/handoff/a_module_design.md` | A 模块技术设计（Phase2.2 baseline） |
 | `docs/algorithm1/handoff/a_module_training_guide.md` | A 模块训练操作手册（Phase2.3） |
