@@ -12,22 +12,29 @@ Build a minimally invasive retrofit on `my-starvla-v2` that supports:
 
 ## Hard Constraints
 
-1. Follow phase gates in order: `P0 -> P1 -> P2 -> P3`.
-2. Do not skip gate without file-level evidence.
-3. Enforce one shared builder as single source of truth for A + corrective.
-4. Keep local-dev vs remote-train boundary explicit.
-5. Do not start async runtime deep coupling in this stream.
-6. Do not start path-A expansion before `P0` is closed.
-7. Use branch promotion discipline: `codex/tmp-* -> codex/worktree-* -> codex/<final-target>`.
-8. Every round must include: changes, evidence, conclusion, next action, commit message.
-9. Active VLM scope is `Qwen2.5VL/Qwen3VL` only; `MapAnything/LLaVA3D` content is historical/out-of-scope in this repo stream.
+1. Session must lock explicit target repo first (`STARVLA_EXPECTED_REPO_ROOT`) and pass `tools/handoff/ensure_repo_context.sh`.
+2. If repo identity check fails, stop immediately; do not continue audit/coding in that workspace.
+3. Follow phase gates in order: `P0 -> P1 -> P2 -> P3`.
+4. Do not skip gate without file-level evidence.
+5. Enforce one shared builder as single source of truth for A + corrective.
+6. Keep local-dev vs remote-train boundary explicit.
+7. Do not start async runtime deep coupling in this stream.
+8. Do not start path-A expansion before `P0` is closed.
+9. Use branch promotion discipline: `codex/tmp-* -> codex/worktree-* -> codex/<final-target>`.
+10. Every round must include: changes, evidence, conclusion, next action, commit message.
+11. Active VLM scope is `Qwen2.5VL/Qwen3VL` only; `MapAnything/LLaVA3D` content is historical/out-of-scope in this repo stream.
 
 ## Startup Sequence
 
-1. Check git branch + dirty state.
-2. Create EXP_ID via `tools/handoff/bootstrap_session.sh start ...`.
-3. Load only phase-relevant source files.
-4. Append major updates to `docs/algorithm1/handoff/progress_live.md`.
+1. Set repo lock variables and run guard:
+   - `export REPO_ROOT="$(git rev-parse --show-toplevel)"`
+   - `export STARVLA_EXPECTED_REPO_ROOT="<absolute-target-repo-root>"`
+   - `export STARVLA_EXPECTED_VLM_SCOPE="qwen_only"`
+   - `bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root`
+2. Check git branch + dirty state.
+3. Create EXP_ID via `tools/handoff/bootstrap_session.sh start ...`.
+4. Load only phase-relevant source files.
+5. Append major updates to `docs/algorithm1/handoff/progress_live.md`.
 
 ## Deep Docs (Load Only If Needed)
 

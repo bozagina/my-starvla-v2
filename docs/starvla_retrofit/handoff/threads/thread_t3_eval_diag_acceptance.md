@@ -6,9 +6,12 @@
 ## 1) 启动命令
 
 ```bash
-cd /Users/bazinga/code/my-starvla-v2
-bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh
-/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh start \
+export REPO_ROOT="$(git rev-parse --show-toplevel)"
+export STARVLA_EXPECTED_REPO_ROOT="<absolute-target-repo-root>"
+export STARVLA_EXPECTED_VLM_SCOPE="qwen_only"
+bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root
+bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"
+"$REPO_ROOT/tools/handoff/bootstrap_session.sh" start \
   --module EVAL \
   --owner OC \
   --title "T3 acceptance alignment and diagnostics"
@@ -16,18 +19,18 @@ bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh
 
 ## 2) 必读上下文（按顺序）
 
-1. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/context_pack_compact.md`
-2. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md`
-3. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/acceptance_deadlock_guard.md`
-4. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md`
-5. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/threads/thread_t3_eval_diag_acceptance.md`
+1. `<REPO_ROOT>/docs/starvla_retrofit/handoff/context_pack_compact.md`
+2. `<REPO_ROOT>/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md`
+3. `<REPO_ROOT>/docs/starvla_retrofit/handoff/acceptance_deadlock_guard.md`
+4. `<REPO_ROOT>/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md`
+5. `<REPO_ROOT>/docs/starvla_retrofit/handoff/threads/thread_t3_eval_diag_acceptance.md`
 
 ## 3) 白名单文件
 
-1. `/Users/bazinga/code/my-starvla-v2/examples/LIBERO/eval_files/eval_libero.py`
-2. `/Users/bazinga/code/my-starvla-v2/examples/LIBERO/eval_files/model2libero_interface.py`
-3. `/Users/bazinga/code/my-starvla-v2/tools/fetch_latest_run_files.sh`
-4. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/*.md`
+1. `<REPO_ROOT>/examples/LIBERO/eval_files/eval_libero.py`
+2. `<REPO_ROOT>/examples/LIBERO/eval_files/model2libero_interface.py`
+3. `<REPO_ROOT>/tools/fetch_latest_run_files.sh`
+4. `<REPO_ROOT>/docs/starvla_retrofit/handoff/*.md`
 
 ## 4) 线程专用 Prompt（复制即用）
 

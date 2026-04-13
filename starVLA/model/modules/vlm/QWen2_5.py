@@ -1,7 +1,8 @@
 # Copyright 2025 starVLA community. All rights reserved.
-# Licensed under the MIT License, Version 1.0 (the "License"); 
+# Licensed under the MIT License, Version 1.0 (the "License");
 # Implemented by [Jinhui YE / HKUST University] in [2025].
 
+import contextlib
 import torch
 import transformers
 from typing import Optional, List
@@ -141,7 +142,21 @@ class _QWen_VL_Interface(nn.Module):
             - Hidden states required for auxiliary alignment or feature extraction modules.
         """
 
-        with torch.autocast("cuda", dtype=torch.bfloat16):
+        runtime_mode = getattr(self, "_starvla_runtime_mixed_precision", None)
+        if not torch.cuda.is_available():
+            autocast_ctx = contextlib.nullcontext()
+        elif runtime_mode is None:
+            autocast_ctx = torch.autocast("cuda", dtype=torch.bfloat16)
+        else:
+            runtime_mode = str(runtime_mode).strip().lower()
+            if runtime_mode in {"fp16", "float16", "16"}:
+                autocast_ctx = torch.autocast("cuda", dtype=torch.float16)
+            elif runtime_mode in {"bf16", "bfloat16"}:
+                autocast_ctx = torch.autocast("cuda", dtype=torch.bfloat16)
+            else:
+                autocast_ctx = torch.autocast("cuda", enabled=False)
+
+        with autocast_ctx:
             outputs = self.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,

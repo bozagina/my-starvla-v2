@@ -1408,6 +1408,23 @@ class VLATrainer(TrainerUtils):
 
         strict_missing_key = _cfg_enabled(hooks_cfg, "strict_missing_key", default=False)
         total_loss = action_loss
+
+        def _coerce_hook_loss_value(hook_key: str, hook_value):
+            if isinstance(hook_value, (float, int)):
+                return torch.tensor(
+                    float(hook_value),
+                    device=action_loss.device,
+                    dtype=action_loss.dtype,
+                )
+            if torch.is_tensor(hook_value):
+                hook_loss = hook_value.to(device=action_loss.device, dtype=action_loss.dtype)
+                if hook_loss.ndim > 0:
+                    hook_loss = hook_loss.mean()
+                return hook_loss
+            raise TypeError(
+                f"optional_loss_hooks expects float/int/tensor for key={hook_key!r}, got {type(hook_value)}"
+            )
+
         hook_specs = [
             ("a_loss", "a_loss", "loss/a_module"),
             ("corrective_loss", "corrective_loss", "loss/corrective"),
@@ -1432,24 +1449,35 @@ class VLATrainer(TrainerUtils):
                 step_metrics[f"debug/{hook_name}_missing"] = 1.0
                 continue
 
-            if isinstance(hook_value, (float, int)):
-                hook_loss = torch.tensor(
-                    float(hook_value),
-                    device=action_loss.device,
-                    dtype=action_loss.dtype,
-                )
-            elif torch.is_tensor(hook_value):
-                hook_loss = hook_value.to(device=action_loss.device, dtype=action_loss.dtype)
-                if hook_loss.ndim > 0:
-                    hook_loss = hook_loss.mean()
-            else:
-                raise TypeError(
-                    f"optional_loss_hooks expects float/int/tensor for key={hook_key!r}, got {type(hook_value)}"
-                )
+            hook_loss = _coerce_hook_loss_value(hook_key, hook_value)
 
             total_loss = total_loss + scale * hook_loss
             step_metrics[metric_name] = float(hook_loss.detach().float().item())
             step_metrics[f"debug/{hook_name}_scale"] = float(scale)
+
+        decomposed_metric_specs = [
+            ("a_loss_risk", "loss/risk", "a_loss"),
+            ("a_loss_trigger", "loss/trigger", "a_loss"),
+            ("a_loss_embed", "loss/embed", "a_loss"),
+            ("corrective_loss_delta", "loss/delta", "corrective_loss"),
+            ("corrective_loss_region", "loss/region", "corrective_loss"),
+        ]
+        for hook_key, metric_name, parent_hook_name in decomposed_metric_specs:
+            parent_cfg = _cfg_get(hooks_cfg, parent_hook_name, None)
+            if not _cfg_enabled(parent_cfg, "enabled", default=False):
+                continue
+            hook_value = output_dict.get(hook_key, None)
+            if hook_value is None:
+                if strict_missing_key:
+                    raise KeyError(
+                        f"optional_loss_hooks requires decomposed key={hook_key!r} for "
+                        f"{parent_hook_name}, but model forward output does not contain it."
+                    )
+                step_metrics[f"debug/{hook_key}_missing"] = 1.0
+                continue
+            hook_loss = _coerce_hook_loss_value(hook_key, hook_value)
+            step_metrics[metric_name] = float(hook_loss.detach().float().item())
+            step_metrics[f"debug/{hook_key}_present"] = 1.0
 
         step_metrics["loss/total"] = float(total_loss.detach().float().item())
         return total_loss

@@ -7,12 +7,15 @@
 ## 1) 通用启动命令（所有线程一致）
 
 ```bash
-cd /Users/bazinga/code/my-starvla-v2
-bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh
+export REPO_ROOT="$(git rev-parse --show-toplevel)"
+export STARVLA_EXPECTED_REPO_ROOT="<absolute-target-repo-root>"
+export STARVLA_EXPECTED_VLM_SCOPE="qwen_only"
+bash "$REPO_ROOT/tools/handoff/ensure_repo_context.sh" --expect-root "$STARVLA_EXPECTED_REPO_ROOT" --expect-vlm-scope "$STARVLA_EXPECTED_VLM_SCOPE" --require-expected-root
+bash "$REPO_ROOT/tools/handoff/pre_dev_readiness.sh"
 ```
 
 ```bash
-/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh start \
+"$REPO_ROOT/tools/handoff/bootstrap_session.sh" start \
   --module <DATA|INFRA|EVAL> \
   --owner OC \
   --title "<thread short title>"
@@ -48,7 +51,7 @@ bash /Users/bazinga/code/my-starvla-v2/tools/handoff/pre_dev_readiness.sh
 
 ## 5) 线程文档入口
 
-1. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/threads/thread_t1_data_builder.md`
-2. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/threads/thread_t2_schema_infra.md`
-3. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/threads/thread_t3_eval_diag_acceptance.md`
-4. `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/threads/thread_t4_trainer_insertion.md`
+1. `<REPO_ROOT>/docs/starvla_retrofit/handoff/threads/thread_t1_data_builder.md`
+2. `<REPO_ROOT>/docs/starvla_retrofit/handoff/threads/thread_t2_schema_infra.md`
+3. `<REPO_ROOT>/docs/starvla_retrofit/handoff/threads/thread_t3_eval_diag_acceptance.md`
+4. `<REPO_ROOT>/docs/starvla_retrofit/handoff/threads/thread_t4_trainer_insertion.md`

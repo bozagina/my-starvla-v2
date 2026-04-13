@@ -5,15 +5,15 @@
 - Scope: local development + remote training validation
 - Active VLM scope: `Qwen2.5VL/Qwen3VL` only for this repo stream (`MapAnything/LLaVA3D` decoupled to external project)
 - Source task book:
-  - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/star_vla改造与统一伪标签生成任务书.md`
+  - `<REPO_ROOT>/docs/starvla_retrofit/handoff/star_vla改造与统一伪标签生成任务书.md`
 - Companion compact startup:
-  - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/new_chat_bootstrap_compact.md`
+  - `<REPO_ROOT>/docs/starvla_retrofit/handoff/new_chat_bootstrap_compact.md`
 - Companion operational skill:
-  - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/skills/starvla-retrofit-ops/SKILL.md`
+  - `<REPO_ROOT>/docs/starvla_retrofit/skills/starvla-retrofit-ops/SKILL.md`
 - Companion deadlock guard:
-  - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/acceptance_deadlock_guard.md`
+  - `<REPO_ROOT>/docs/starvla_retrofit/handoff/acceptance_deadlock_guard.md`
 - Companion thread index:
-  - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md`
+  - `<REPO_ROOT>/docs/starvla_retrofit/handoff/thread_prompts_and_checklists_index.md`
 
 ---
 
@@ -64,7 +64,7 @@ Why:
 Because current worktree has local modified files, prefer a separate worktree to avoid accidental carry-over.
 
 ```bash
-cd /Users/bazinga/code/my-starvla-v2
+cd <REPO_ROOT>
 git worktree add ../my-starvla-v2-retrofit \
   -b codex/starvla-retrofit-unified-pseudolabel-20260402 \
   main
@@ -73,7 +73,7 @@ git worktree add ../my-starvla-v2-retrofit \
 Then develop in:
 
 ```bash
-cd /Users/bazinga/code/my-starvla-v2-retrofit
+cd ../my-starvla-v2-retrofit
 ```
 
 Then initialize the 3-level branch model in that worktree:
@@ -123,8 +123,8 @@ Current mask-stream prompt is not enough for retrofit execution. Use retrofit-sp
 ### 4.1 Mandatory startup block (v2)
 
 1. Read compact context first:
-   - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/context_pack_compact.md`
-   - `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md`
+   - `<REPO_ROOT>/docs/starvla_retrofit/handoff/context_pack_compact.md`
+   - `<REPO_ROOT>/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md`
 2. Read deep task-book only if compact context is insufficient.
 3. Check branch/dirty status and confirm three-level topology:
    - `codex/tmp-* -> codex/worktree-* -> codex/<final-target>`
@@ -135,8 +135,8 @@ Current mask-stream prompt is not enough for retrofit execution. Use retrofit-sp
    - `P3 corrective trainer`
 5. Create EXP_ID before first patch.
 6. Optional helper commands:
-   - `/Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh prompt-retrofit`
-   - `bash /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh`
+   - `<REPO_ROOT>/tools/handoff/bootstrap_session.sh prompt-retrofit`
+   - `bash <REPO_ROOT>/docs/starvla_retrofit/skills/starvla-retrofit-ops/scripts/preflight.sh`
 
 ### 4.2 Mandatory delivery format per round
 
@@ -162,7 +162,7 @@ Always report:
 ## 5. Suggested New Prompt Template (Copy Block)
 
 ```text
-You are continuing StarVLA retrofit in /Users/bazinga/code/my-starvla-v2.
+You are continuing StarVLA retrofit in <REPO_ROOT>.
 
 Mission:
 - Keep minimal-invasive changes on StarVLA.
@@ -172,15 +172,15 @@ Mission:
 
 Startup (mandatory):
 1) Read:
-   - /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/context_pack_compact.md
-   - /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md
-   - /Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md (tail only)
+   - <REPO_ROOT>/docs/starvla_retrofit/handoff/context_pack_compact.md
+   - <REPO_ROOT>/docs/starvla_retrofit/handoff/system_prompt_operating_contract.md
+   - <REPO_ROOT>/docs/algorithm1/handoff/progress_live.md (tail only)
 2) Load deep task-book only if current gate needs more detail:
-   - /Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/handoff/star_vla改造与统一伪标签生成任务书.md
+   - <REPO_ROOT>/docs/starvla_retrofit/handoff/star_vla改造与统一伪标签生成任务书.md
 3) Check current branch status and three-level topology:
    - codex/tmp-* -> codex/worktree-* -> codex/<final-target>
 4) Create EXP_ID before first code patch:
-   - /Users/bazinga/code/my-starvla-v2/tools/handoff/bootstrap_session.sh start --module INFRA --owner OC --title "<one line task title>"
+   - <REPO_ROOT>/tools/handoff/bootstrap_session.sh start --module INFRA --owner OC --title "<one line task title>"
 5) Keep current gate explicit and do not skip gate without file-level evidence.
 
 Hard constraints:
@@ -205,7 +205,7 @@ Output each round:
 
 Use project skill playbook for repeatability:
 
-- `/Users/bazinga/code/my-starvla-v2/docs/starvla_retrofit/skills/starvla-retrofit-ops/SKILL.md`
+- `<REPO_ROOT>/docs/starvla_retrofit/skills/starvla-retrofit-ops/SKILL.md`
 
 Token-efficiency principles in this stream:
 
