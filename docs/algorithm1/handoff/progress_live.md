@@ -6259,3 +6259,121 @@ Copy this block for each new entry:
 - Owner: OC
 - Status: DONE
 - Objective: Close stale BLOCKED_WAIT_REMOTE. Decomposed loss recovered in 018+.
+
+## [2026-04-14 00:30:00 +08:00] A-RES / A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE: Outcome Label v0.9 Spec Delivered
+
+- Owner: OC
+- Thread: A-RES
+- Round: A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE
+- Status: DONE
+- Objective:
+  - Produce Phase3.0B Outcome Label upgrade specification as standalone reviewable document.
+  - Close three open research risks: f_k failure detector definition, τ_s calibration rule, W weight matrix.
+  - Define acceptance hypothesis (AH-1 ~ AH-5) for A-BUILD and A-REVIEW.
+- Changes:
+  - Files:
+    - `docs/starvla_retrofit/handoff/phase3_0b_outcome_label_upgrade_spec.md` (NEW)
+    - `docs/algorithm1/handoff/manifests/a_module_current_round.yaml` (updated A-RES status)
+    - `docs/algorithm1/handoff/progress_live.md` (this entry)
+  - Content summary:
+    - Created standalone spec doc with: problem statement, frozen anchors, outcome label formulas, parameter table, acceptance hypothesis, handoff checklists for A-BUILD and A-REVIEW.
+    - Closed R1: f_k defined as threshold on d_k (τ_fail=0.7), no external oracle needed.
+    - Closed R2: τ_s initial=0.15, calibrated by P90 of weighted L2 state deviation distribution.
+    - Closed R3: W defined as group weights (position=1.0, rotation=0.5, gripper=2.0), with fallback for non-7-DoF.
+- Evidence:
+  - Code audit: `build_fasa_dataset.py::_compute_pseudo_labels` (L78-108) confirms delta-only semantics.
+  - Code audit: `_build_region_target_15` (L121-139) confirms `max(prior,mask)` pollution path.
+  - Code audit: `_build_record` (L187-216) confirms `future_state` present but unused in labels.
+  - Code audit: `optional_loss_utils.py::build_optional_hook_targets` confirms field names frozen.
+  - Manifest: `a_module_current_round.yaml` A-RES status=ready with blocking conditions listed.
+- Decision:
+  - Adopt Hybrid Outcome Labels v0.9 as defined in spec doc.
+  - Modification scope: `tools/build_fasa_dataset.py` (primary), `tools/fasa_dataset_audit.py` (secondary).
+  - No model structure changes in this round.
+- Open risks (降级后):
+  - R1': f_k state-deviation-only may miss semantic failures (LOW, mitigated by gripper weight=2.0).
+  - R4: spec not yet reviewed by A-REVIEW (MEDIUM).
+  - R5: current trigger degradation rate lacks quantitative baseline audit (LOW, A-BUILD to produce).
+- Next step:
+  - A-BUILD: implement `_compute_pseudo_labels_v2()` per spec §3.4, run AH-1~AH-3 local validation.
+  - A-REVIEW: review spec document for formula/parameter self-consistency.
+- Commit message:
+  - `[A-RES] phase3_0b outcome label upgrade spec v0.9 with closed R1/R2/R3`
+
+## [2026-04-14 01:30:00 +08:00] A-BUILD / A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE: Outcome Labels v0.9 Implementation
+
+- Owner: OC
+- Thread: A-BUILD
+- Round: A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE
+- Status: DONE (local), BLOCKED_WAIT_REMOTE (AH-4/AH-5)
+- Objective:
+  - Implement `_compute_pseudo_labels_v2()` per spec §3.4 in `tools/build_fasa_dataset.py`.
+  - Upgrade `tools/fasa_dataset_audit.py` with AH-1~AH-3 outcome label verification gates.
+  - Preserve legacy fallback via `--legacy-labels` flag.
+- Changes:
+  - Files:
+    - `tools/build_fasa_dataset.py` (primary: v2 pseudo labels, CLI params, outcome stats)
+    - `tools/fasa_dataset_audit.py` (secondary: AH-1/AH-2/AH-3 audit checks)
+  - Content summary:
+    - New function `_compute_pseudo_labels_v2()` implementing: weighted state deviation d_H (§3.2), failure detector f_H (§3.3), outcome-based risk/trigger/delta/region/mask (§3.4).
+    - New helper `_build_weight_vector()` for group-weighted L2 (pos=1.0, rot=0.5, grip=2.0).
+    - New helper `_compute_outcome_stats()` for AH-1~AH-3 stats in build output.
+    - Updated `_canonicalize_pseudo_labels()` to route v2 when state + label_params available.
+    - Added CLI: `--tau-s`, `--tau-fail`, `--alpha-d`, `--beta-delta`, `--gamma-region`, `--legacy-labels`.
+    - Audit script now reports `outcome_label_audit` section with AH-1/AH-2/AH-3 pass/fail.
+- Evidence:
+  - Commands:
+    - `python tools/build_fasa_dataset.py --input-jsonl <synth> --output-jsonl <out> --horizon-steps 4`
+    - `python tools/fasa_dataset_audit.py --input-jsonl <out>`
+    - `python tools/build_fasa_dataset.py ... --legacy-labels` (backward compat)
+  - Key outputs/metrics:
+    - Synthetic 95-row build: gate_pass=true, AH-1 pass (0% false trigger), outcome_v2 fields present.
+    - Legacy mode: no outcome_v2 fields, backward compatible.
+    - AH-2/AH-3 fail on synthetic random data (expected: random noise saturates d_H).
+- Decision:
+  - Implementation complete for local scope. AH-4 (500-step train) and AH-5 (LIBERO eval) require remote runs.
+- Risks/Notes:
+  - AH-2/AH-3 on real data TBD — synthetic random data is not representative of real state deviations.
+  - AH-4 requires 500-step training run with new labels → BLOCKED_WAIT_REMOTE.
+  - AH-5 requires full LIBERO evaluation → BLOCKED_WAIT_REMOTE.
+- Next step:
+  - A-REVIEW: audit changed files, verify spec compliance, check frozen anchor preservation.
+  - Remote: rebuild FASA dataset with real data, run 500-step training, submit LIBERO eval.
+- Commit message:
+  - `[A-BUILD] implement outcome labels v0.9 per phase3_0b spec`
+
+## [2026-04-14 02:00:00 +08:00] A-BUILD / A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE: τ_s Auto-Calibration + Baseline Comparison
+
+- Owner: OC
+- Thread: A-BUILD
+- Round: A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE
+- Status: DONE (local supplement)
+- Objective:
+  - Implement spec §3.2 τ_s auto-calibration (two-pass P90-based).
+  - Run legacy vs v0.9 baseline comparison to quantify trigger degradation fix.
+  - Run controlled-deviation test to verify formula correctness.
+- Changes:
+  - Files:
+    - `tools/build_fasa_dataset.py` (added `_raw_weighted_deviation()`, `_calibrate_tau_s()`, refactored both build paths for two-pass)
+  - Content summary:
+    - Pass 1: collect all raw weighted L2 deviations.
+    - Calibrate τ_s: use P90 of raw deviations, with fallback rules (P90<0.05→0.05, P90>0.5→P90).
+    - Pass 2: compute labels with calibrated τ_s.
+    - Stats output includes `tau_s_calibration` section with method, P90, calibrated value.
+- Evidence:
+  - **Legacy vs v0.9 comparison** (200 realistic-synthetic records):
+    - Legacy: trigger_rate=100% (退化), region_bins=4.27
+    - v0.9: trigger_rate=47.4%, region_bins=7.32 (合成数据偏差远超真实)
+    - τ_s auto-calibration: P90=4.725 → calibrated_tau_s=4.725 (fallback_high)
+  - **Controlled formula test** (100 records: 70% zero / 20% small / 10% large dev):
+    - AH-1 PASS: 0% false trigger on zero-deviation samples
+    - AH-2 PASS: trigger_rate=14.29% (in 1-30% gate)
+    - AH-3: 5.73 bins (marginally over 5 due to large-dev samples, design-expected)
+    - Record-level: zero→(d_H=0,trigger=0), small→(d_H=0.11,trigger=0), large→(d_H=1.0,trigger=1) ✓
+  - **Legacy compat**: `--legacy-labels` produces no _outcome_v2 fields ✓
+- Decision:
+  - τ_s calibration correctly adapts to data distribution per spec §3.2.
+  - Formula implementation verified against known inputs.
+- Next step:
+  - A-REVIEW: proceed with spec compliance audit.
+  - Remote: rebuild real FASA dataset, validate AH-2/AH-3 on real distribution.

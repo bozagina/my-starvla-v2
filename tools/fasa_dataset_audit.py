@@ -70,6 +70,13 @@ def main() -> None:
     rows_nonfinite = 0
     bad_examples: list[tuple[int, str]] = []
 
+    trigger_labels: list[int] = []
+    region_active_bins: list[int] = []
+    zero_delta_total = 0
+    zero_delta_triggers = 0
+    d_H_values: list[float] = []
+    has_outcome_v2 = False
+
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = line.strip()
         if not line:
@@ -137,6 +144,27 @@ def main() -> None:
             if _reduce_delta_norm(pseudo.get("delta_action_norm")) is None:
                 row_errors.append("pseudo_labels.delta_action_norm missing/non-finite")
 
+            trigger_val = int(trigger) if trigger is not None and trigger in (0.0, 1.0) else 0
+            trigger_labels.append(trigger_val)
+
+            delta_norms = pseudo.get("delta_action_norm")
+            max_dn = _reduce_delta_norm(delta_norms)
+            if max_dn is not None and max_dn < 1e-6:
+                zero_delta_total += 1
+                if trigger_val == 1:
+                    zero_delta_triggers += 1
+
+            outcome_v2 = pseudo.get("_outcome_v2")
+            if isinstance(outcome_v2, dict) and "d_H" in outcome_v2:
+                has_outcome_v2 = True
+                dh = _safe_float(outcome_v2["d_H"])
+                if dh is not None:
+                    d_H_values.append(dh)
+
+        if isinstance(region_target_15, list) and len(region_target_15) == CANONICAL_REGION_LEN:
+            active = sum(1 for v in region_target_15 if isinstance(v, (int, float)) and v > 0.5)
+            region_active_bins.append(active)
+
         if (
             sample_step is not None
             and horizon_steps is not None
@@ -156,13 +184,29 @@ def main() -> None:
             if len(bad_examples) < args.max_print_bad:
                 bad_examples.append((line_no, "; ".join(row_errors)))
 
+    n = rows_total
+    trigger_positive_rate = float(sum(trigger_labels)) / n if n > 0 else 0.0
+    mean_region_active = (
+        float(sum(region_active_bins)) / len(region_active_bins) if region_active_bins else 0.0
+    )
+    zero_delta_false_trigger_rate = (
+        float(zero_delta_triggers) / zero_delta_total if zero_delta_total > 0 else 0.0
+    )
+
+    ah1_pass = zero_delta_false_trigger_rate < 0.01
+    ah2_pass = 0.01 <= trigger_positive_rate <= 0.30
+    ah3_pass = mean_region_active < 5.0
+
     gate_pass = (
         rows_total > 0
         and rows_future_state_backfilled_ok == rows_total
         and rows_region_target_15_len_mismatch == 0
         and rows_nonfinite == 0
     )
-    summary = {
+
+    outcome_gate_pass = ah1_pass and ah2_pass and ah3_pass
+
+    summary: dict[str, Any] = {
         "input_jsonl": str(path),
         "rows_total": rows_total,
         "rows_future_state_backfilled_ok": rows_future_state_backfilled_ok,
@@ -170,11 +214,28 @@ def main() -> None:
         "rows_region_target_15_len_mismatch": rows_region_target_15_len_mismatch,
         "rows_nonfinite": rows_nonfinite,
         "gate_pass": gate_pass,
+        "outcome_label_audit": {
+            "has_outcome_v2": has_outcome_v2,
+            "AH1_zero_delta_false_trigger_rate": zero_delta_false_trigger_rate,
+            "AH1_zero_delta_samples": zero_delta_total,
+            "AH1_pass": ah1_pass,
+            "AH2_trigger_positive_rate": trigger_positive_rate,
+            "AH2_pass": ah2_pass,
+            "AH3_mean_region_active_bins": mean_region_active,
+            "AH3_pass": ah3_pass,
+            "outcome_gate_pass": outcome_gate_pass,
+        },
         "bad_examples": [
             {"line_no": line_no, "error": error}
             for line_no, error in bad_examples
         ],
     }
+    if d_H_values:
+        summary["outcome_label_audit"]["d_H_count"] = len(d_H_values)
+        summary["outcome_label_audit"]["d_H_mean"] = float(sum(d_H_values) / len(d_H_values))
+        sorted_dh = sorted(d_H_values)
+        p90_idx = int(len(sorted_dh) * 0.90)
+        summary["outcome_label_audit"]["d_H_P90"] = sorted_dh[min(p90_idx, len(sorted_dh) - 1)]
 
     if args.output_json:
         output_path = Path(args.output_json).expanduser().resolve()
