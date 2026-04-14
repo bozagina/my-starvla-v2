@@ -1,6 +1,6 @@
 # Phase3.0B Outcome Label Upgrade Specification
 
-status: v0.9.2-draft
+status: v0.9.3-draft
 author: A-RES thread
 round_id: A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE
 date: 2026-04-14
@@ -8,6 +8,7 @@ revision: |
   2026-04-14 v0.9   — initial spec with fixed α_d=0.35, τ_fail=0.7
   2026-04-14 v0.9.1 — auto-calibration amendment after LIBERO AH-2/AH-3 failure
   2026-04-14 v0.9.2 — training loss improvements: conditional region loss + consistency regularization
+  2026-04-14 v0.9.3 — pseudo-label pipeline upgrade: intermediate states + progress signal + state-deviation-based correction_mask/region_prior
 
 ---
 

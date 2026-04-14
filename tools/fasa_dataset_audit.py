@@ -75,7 +75,12 @@ def main() -> None:
     zero_delta_total = 0
     zero_delta_triggers = 0
     d_H_values: list[float] = []
-    has_outcome_v2 = False
+    has_outcome = False
+    outcome_version: str = "none"
+    rows_with_intermediate_states = 0
+    rows_with_progress_t = 0
+    rows_delta_action_norm_scalar = 0
+    progress_t_values: list[float] = []
 
     for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = line.strip()
@@ -154,9 +159,18 @@ def main() -> None:
                 if trigger_val == 1:
                     zero_delta_triggers += 1
 
+            outcome_v3 = pseudo.get("_outcome_v3")
             outcome_v2 = pseudo.get("_outcome_v2")
-            if isinstance(outcome_v2, dict) and "d_H" in outcome_v2:
-                has_outcome_v2 = True
+            if isinstance(outcome_v3, dict) and "d_H" in outcome_v3:
+                has_outcome = True
+                outcome_version = "v3"
+                dh = _safe_float(outcome_v3["d_H"])
+                if dh is not None:
+                    d_H_values.append(dh)
+            elif isinstance(outcome_v2, dict) and "d_H" in outcome_v2:
+                has_outcome = True
+                if outcome_version != "v3":
+                    outcome_version = "v2"
                 dh = _safe_float(outcome_v2["d_H"])
                 if dh is not None:
                     d_H_values.append(dh)
@@ -164,6 +178,21 @@ def main() -> None:
         if isinstance(region_target_15, list) and len(region_target_15) == CANONICAL_REGION_LEN:
             active = sum(1 for v in region_target_15 if isinstance(v, (int, float)) and v > 0.5)
             region_active_bins.append(active)
+
+        # v0.9.3 field checks
+        int_states = record.get("intermediate_states")
+        if isinstance(int_states, list) and len(int_states) > 0:
+            if all(_is_finite_list(s) for s in int_states):
+                rows_with_intermediate_states += 1
+        pt = record.get("progress_t")
+        if pt is not None:
+            ptf = _safe_float(pt)
+            if ptf is not None:
+                rows_with_progress_t += 1
+                progress_t_values.append(ptf)
+        dan = pseudo.get("delta_action_norm") if isinstance(pseudo, dict) else None
+        if isinstance(dan, (int, float)):
+            rows_delta_action_norm_scalar += 1
 
         if (
             sample_step is not None
@@ -215,7 +244,8 @@ def main() -> None:
         "rows_nonfinite": rows_nonfinite,
         "gate_pass": gate_pass,
         "outcome_label_audit": {
-            "has_outcome_v2": has_outcome_v2,
+            "has_outcome": has_outcome,
+            "outcome_version": outcome_version,
             "AH1_zero_delta_false_trigger_rate": zero_delta_false_trigger_rate,
             "AH1_zero_delta_samples": zero_delta_total,
             "AH1_pass": ah1_pass,
@@ -224,6 +254,13 @@ def main() -> None:
             "AH3_mean_region_active_bins": mean_region_active,
             "AH3_pass": ah3_pass,
             "outcome_gate_pass": outcome_gate_pass,
+        },
+        "v093_fields": {
+            "rows_with_intermediate_states": rows_with_intermediate_states,
+            "rows_with_progress_t": rows_with_progress_t,
+            "rows_delta_action_norm_scalar": rows_delta_action_norm_scalar,
+            "progress_t_min": min(progress_t_values) if progress_t_values else None,
+            "progress_t_max": max(progress_t_values) if progress_t_values else None,
         },
         "bad_examples": [
             {"line_no": line_no, "error": error}

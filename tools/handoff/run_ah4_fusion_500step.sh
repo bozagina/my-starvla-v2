@@ -20,14 +20,14 @@ export HF_PARALLEL_LOADING_WORKERS=8
 export PYTHONUNBUFFERED=1
 export PYTHONFAULTHANDLER=1
 
-RUN_ID="ah4_v092_fusion_500step_$(date +%Y%m%d_%H%M%S)"
+RUN_ID="ah4_v093_500step_$(date +%Y%m%d_%H%M%S)"
 OUTPUT_DIR="${REPO_ROOT}/results/Checkpoints/${RUN_ID}"
 mkdir -p "${OUTPUT_DIR}"
 cp "$0" "${OUTPUT_DIR}/"
 
-CORRECTION_JSONL="${REPO_ROOT}/results/PseudoLabels/p3_0b_outcome_v091_lerobot/correction_dataset_with_a_outputs.jsonl"
+CORRECTION_JSONL="${REPO_ROOT}/results/PseudoLabels/p3_0b_outcome_v093/correction_dataset_with_a_outputs.jsonl"
 
-echo "=== AH-4 v0.9.2 Fusion 500-step Training (P0+P1) ==="
+echo "=== AH-4 v0.9.3 500-step Training (state-deviation labels) ==="
 echo "RUN_ID: ${RUN_ID}"
 echo "CORRECTION_JSONL: ${CORRECTION_JSONL}"
 echo "OUTPUT_DIR: ${OUTPUT_DIR}"

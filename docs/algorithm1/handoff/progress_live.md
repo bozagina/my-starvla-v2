@@ -6836,3 +6836,123 @@ Copy this block for each new entry:
   - A-REVIEW: re-audit Part A + Part B.
   - Rebuild server FASA datasets with v0.9.3 for training.
   - AH-5 evaluation when corrective policy is ready.
+
+## [2026-04-14 23:30:00 +08:00] A-REVIEW / A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE: Re-Audit (Round 2) — PASS
+
+- Owner: OC
+- Thread: A-REVIEW
+- Round: A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE
+- Status: PASS
+- Downstream usability: **USABLE** — CP-BUILD and CP-RES may proceed.
+- Objective:
+  - Re-audit after A-BUILD resolved all F-1~F-5 blocking items (Part A, commit 0aaaf75) and implemented v0.9.3 pseudo-label pipeline upgrade (Part B, commit e725325).
+  - Verify all first-audit blocking items are genuinely resolved.
+  - Audit v0.9.3 new content: intermediate_states, progress_t, _compute_pseudo_labels_v3().
+  - Re-assess downstream usability.
+- First-audit blocking items — resolution verification:
+  - **F-1 [CRITICAL] RESOLVED**: `.gitignore` no longer contains spec file entry. Spec tracked in git (commit 0aaaf75). Verified: `grep` returns no matches. ✓
+  - **F-2 [CRITICAL] RESOLVED**: QwenPI.py now contains P0 (`trigger_positive` gating at L292, `correction_mask & trigger_positive` at L295, `region_mask & trigger_positive` at L307) and P1 (`consist_weight` at L241, `consist_loss` at L248, hinge margin at L247). Committed in 0aaaf75. Latest QwenPI.py commit: 0aaaf75. ✓
+  - **F-3 [HIGH] RESOLVED**: `git status` returns clean. `build_fasa_dataset.py` and `fasa_dataset_audit.py` committed across 0aaaf75 + e725325. ✓
+  - **F-4 [MEDIUM] RESOLVED**: Spec §4.3 now has explicit carve-out table: QwenPI.py frozen scope = "模型结构（heads、forward 签名）"; allowed = "_compute_optional_hook_outputs 中的 loss 计算逻辑"; training/** allowed = "metric 报告逻辑". ✓
+  - **F-5 [MEDIUM] RESOLVED**: `delta_action_norm` at L285 (v2) and L383 (v3) now stores scalar `max(max_delta, beta*d_H)`. Per-step list moved to `_outcome_v2.delta_norm_per_step` / `_outcome_v3.delta_norm_per_step`. Spec §3.4 has implementation note confirming scalar format. ✓
+- v0.9.3 new content — formula verification:
+  - Per-step d_k (§3.6): `d_k = clip(||s_{t+k} - s_t||_W / tau_s, 0, 1)` → Code L328-334: iterate intermediate_states, compute weighted diff, normalize. ✓
+  - d_H = d_k_list[-1] (L337): relies on intermediate_states[-1] == future_state. Spec §3.6 documents this invariant; dataset-root code at L863 confirms `future_state = intermediate_states[-1]`. ✓
+  - f_H, risk_score, trigger_label (L345-347): identical to v2. ✓
+  - correction_mask (L357-361): `if f_H==1: all-ones; else: d_k > alpha_d`. Matches spec v0.9.3 §3.4. ✓
+  - region_prior base (L363-368): `d_k / sum(d_k)` (or uniform if sum=0). Matches spec v0.9.3 §3.6. ✓
+  - region_prior overlay (L370-376): `gamma * max(0, d_H - alpha_d)` on second half only. Matches spec v0.9.1. ✓
+  - delta_action_norm scalar (L355): same formula as v2. ✓
+  - Length change: correction_mask/region_prior now length=horizon_steps (4), not action_chunk_len-1 (7). Downstream `_build_region_target_15` uses `_resample_vector` which handles any length. ✓
+  - _canonicalize routing (L410-444): v3 > v2 > legacy fallback chain. ✓
+  - intermediate_states extraction — dataset-root (L857-863): extracts s_{t+1}..s_{t+H} from parquet. ✓
+  - intermediate_states extraction — correction_jsonl (L678-694): first tries record field, then resolves from future_index. ✓
+  - progress_t — dataset-root (L871): `frame_index / max(1, episode_length-1)`, range [0,1]. ✓
+  - progress_t — correction_jsonl (L697-702): extracts from record/meta or null. ✓
+  - _build_record (L628-633): intermediate_states and progress_t conditionally added. ✓
+- QwenPI.py P0+P1 verification:
+  - P0: trigger_positive = `targets["trigger_label"] > 0.5` (L292). correction_mask intersected at L295. region_mask intersected at L307. Trigger=0 samples produce zero region gradient. ✓
+  - P0 debug: `region_trigger_filtered_count` counts filtered-out samples (L302-303, L315-316). ✓
+  - P1: `consist_weight` from config (L241). `margin = region_prob_mean - trigger_prob - 0.1` (L247). `consist_loss = consist_weight * (F.relu(margin)^2).mean()` (L248). ✓
+  - P1 single-direction: `F.relu(margin)` → only penalizes region_high + trigger_low, not reverse. ✓
+  - P1 output: `output_dict["a_loss_consist"] = consist_loss` (L250). ✓
+- Frozen anchor verification:
+  - `optional_loss_utils.py`: NOT modified (last commit 96b27d9, 2026-04-06). ✓
+  - `a_module_interface.py`: NOT modified. ✓
+  - QwenPI.py: no new heads, no forward signature change, only loss logic in _compute_optional_hook_outputs. ✓
+  - Field names (risk_score, trigger_label, delta_action_norm, correction_mask, affected_region_prior, dynamic_embedding): all preserved in v3 output. ✓
+  - Schema: PHASE0_SCHEMA_VERSION unchanged (`p4_1_fasa_phase0_v1`). ✓
+- AH evidence status:
+  - AH-1: PASS (v0.9.3, LIBERO 2000 samples, 0% false trigger). ✓
+  - AH-2: PASS (v0.9.3, 25.0% trigger rate, gate 1%~30%). ✓
+  - AH-3: PASS (v0.9.3, 1.25 bins, gate < 5 — massive improvement from 7.91). ✓
+  - AH-4: PASS (v0.9.2 P0+P1, 500-step, all 9 loss components finite + non-degenerate). Advisory: not re-validated with v0.9.3 data.
+  - AH-5: BLOCKED_WAIT_REMOTE (requires corrective policy operational).
+- Advisory items (non-blocking):
+  - **NEW-F1 [LOW]**: Audit script `fasa_dataset_audit.py` L157 only checks for `_outcome_v2` dict, not `_outcome_v3`. v0.9.3 data will show `has_outcome_v2=False` and miss d_H distribution stats. AH pass/fail gates unaffected (use top-level fields). Recommend: add `_outcome_v3` fallback in next audit script update.
+  - **NEW-F2 [INFO]**: Spec file header still says `status: v0.9.2-draft` and revision list only covers v0.9~v0.9.2, despite containing §3.6 (v0.9.3 content). Cosmetic — recommend updating header.
+  - **NEW-F3 [INFO]**: AH-4 validated on v0.9.2 pseudo-labels (correction_mask len=7, delta-norm based). v0.9.3 changes correction_mask/region_prior (len=4, d_k-based). Downstream `_resample_vector`/`_coerce_vector` handles length change, but explicit re-validation recommended before full training.
+  - **NEW-F4 [INFO]**: f_H=1 code path untested on real data (LIBERO τ_fail calibrated to 1.0 → 0 triggers). Logic is correct per code inspection; will naturally activate on more diverse datasets.
+- Verdict: **PASS**
+  - All first-audit blocking items (F-1~F-5) verified resolved and committed.
+  - v0.9.3 formula implementation correct across all verified paths.
+  - QwenPI.py P0+P1 correctly implemented.
+  - Frozen anchors fully preserved.
+  - AH-1~AH-3 PASS on LIBERO real data with v0.9.3.
+  - AH-4 PASS on training with v0.9.2 P0+P1.
+  - 4 advisory items, 0 blocking items.
+- Downstream usability verdict: **USABLE**
+  - A-output contract is stable: field names, formats, and semantic definitions are committed, validated, and frozen.
+  - CP-BUILD and CP-RES may proceed.
+  - AH-5 evaluation to be conducted after CP-BUILD delivers a working corrective policy.
+  - Advisory: rebuild server FASA datasets with v0.9.3 before full-scale training.
+- Next step:
+  - CP-RES: begin corrective-policy research using A-output contract (field names, semantics per spec v0.9.3).
+  - CP-BUILD: may proceed with corrective-policy implementation against A-output contract.
+  - A-BUILD: (1) update audit script to handle _outcome_v3; (2) update spec header to v0.9.3; (3) rebuild server FASA datasets; (4) re-run AH-4 with v0.9.3 data.
+  - Remote: AH-5 evaluation after corrective policy is operational.
+
+## [2026-04-14 23:30:00 +08:00] A-BUILD / A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE: v0.9.3 Wrap-up — Advisory Items + AH-4 Re-validation
+
+- Owner: OC
+- Thread: A-BUILD
+- Status: DONE
+- Objective:
+  - Address A-REVIEW Round 2 advisory items (NEW-F1~F3) and re-validate AH-4 with v0.9.3 data.
+- Actions taken:
+  - **T1: fasa_dataset_audit.py v3 support (NEW-F1 resolved)**
+    - L157: added `_outcome_v3` fallback (priority v3 > v2)
+    - Renamed `has_outcome_v2` to `has_outcome`, added `outcome_version` field ("v3"/"v2"/"none")
+    - Added `v093_fields` section: rows_with_intermediate_states, rows_with_progress_t, rows_delta_action_norm_scalar, progress_t range
+    - Verified on existing v0.9.3 validation JSONL: outcome_version="v3", d_H stats present, all 2000 rows audit clean
+  - **T2: spec header updated to v0.9.3 (NEW-F2 resolved)**
+    - status: v0.9.2-draft → v0.9.3-draft
+    - Added revision entry for v0.9.3
+  - **T3: Remote FASA dataset rebuilt with v0.9.3**
+    - 4 LEROBOT sub-datasets built: libero_10, libero_goal, libero_object, libero_spatial (500 samples each)
+    - Merged into: `results/PseudoLabels/p3_0b_outcome_v093/correction_dataset_with_a_outputs.jsonl` (2000 rows)
+    - a_outputs generated: 2000/2000 from pseudo_labels, 0 fallback
+    - Audit result: gate_pass=true, outcome_version=v3, AH-1 PASS (0%), AH-2 PASS (25.0%), AH-3 PASS (1.193 < 5)
+    - intermediate_states: 2000/2000, progress_t: [0.0, 0.977], delta_action_norm scalar: 2000/2000
+  - **T4: AH-4 re-validated with v0.9.3 data**
+    - Run ID: `ah4_v093_500step_20260414_115012`
+    - 500 steps, 4 GPU DeepSpeed ZeRO-2, `a_module.mode=lite`, `consist_weight=0.1`
+    - **[1] Finiteness: PASS** — 0 NaN, 0 Inf across all 9 loss components
+    - **[2] Non-degeneracy: PASS** — all 9 losses non-zero and non-constant
+    - **[3] Trend**: total loss 13.46 → 1.96 (-85.5%), a_module 11.36 → 0.56 (-95.0%), corrective 0.90 → 0.21 (-76.6%)
+    - **loss/consist**: finite (max=0.0006), small but active — hinge margin working correctly
+    - **loss/region**: PASS (mean=0.32), intermittent zeros expected due to P0 trigger gating
+    - **AH-4 OVERALL: PASS**
+- Evidence:
+  - Server: `results/PseudoLabels/p3_0b_outcome_v093/` (FASA dataset + audit)
+  - Server: `results/Checkpoints/ah4_v093_500step_20260414_115012/` (metrics.jsonl, train.raw.log)
+- Decision:
+  - All A-REVIEW Round 2 advisory items resolved (NEW-F1~F3).
+  - AH-4 validated on v0.9.3 data — training stable with state-deviation-based labels.
+  - No anomalies from correction_mask/region_prior length change (7→4).
+- Risks/Notes:
+  - NEW-F4 (f_H=1 untested): accepted as known limitation — LIBERO demos have no failures.
+  - loss/consist is very small (max 0.0006) — consistent with P1 design (hinge margin, only penalizes violations).
+- Next step:
+  - phase3_0b gate: all AH-1~AH-4 PASS. AH-5 (LIBERO eval) blocked on corrective policy.
+  - Corrective policy development can proceed using v0.9.3 A-output contract.

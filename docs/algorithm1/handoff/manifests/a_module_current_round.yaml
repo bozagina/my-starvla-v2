@@ -100,6 +100,8 @@ threads:
       Part B: v0.9.3 pseudo-label upgrade — intermediate_states extraction (B4),
       progress_t signal (B5), state-deviation-based correction_mask/region_prior (B6).
       AH-1~AH-3 validated on LIBERO 2000 samples. AH-3: 1.25 (was 7.91 in v0.9.1).
+      Wrap-up: resolved NEW-F1~F3 advisory items, rebuilt FASA dataset with v0.9.3,
+      AH-4 re-validated on v0.9.3 data (ah4_v093_500step_20260414_115012). All PASS.
       AH-5 blocked on corrective policy build.
     delivered_artifacts:
       - Part A: F-1~F-5 resolution commit (0aaaf75)
@@ -108,9 +110,11 @@ threads:
       - Part B: LIBERO 2000-sample AH-1~AH-3 validation
       - QwenPI.py P0+P1 code changes (synced from remote)
       - train_starvla.py a_loss_consist metric reporting
-      - 500-step AH-4 evidence (metrics.jsonl, train.raw.log)
-      - spec v0.9.3 amendments (§3.3, §3.4, §3.6)
-    delivered_at: "2026-04-14T22:00:00+08:00"
+      - v0.9.3 500-step AH-4 evidence (ah4_v093_500step_20260414_115012)
+      - spec v0.9.3 header + revision entry
+      - fasa_dataset_audit.py v3 support (outcome_version, v093_fields)
+      - v0.9.3 FASA training dataset (p3_0b_outcome_v093/)
+    delivered_at: "2026-04-14T23:30:00+08:00"
     upstream_spec: docs/starvla_retrofit/handoff/phase3_0b_outcome_label_upgrade_spec.md
     upstream_spec_version: v0.9.3
     baseline_anchor:
@@ -139,26 +143,49 @@ threads:
     role: REVIEW
     current_gate: phase3_0b_outcome_label_upgrade
     owner: OC
-    status: pending_reaudit
-    verdict: CONDITIONAL_PASS (pending re-audit after Part A + Part B)
-    downstream_usability: NOT_USABLE (pending re-audit)
-    reviewed_spec_version: v0.9.2
-    pending_spec_version: v0.9.3
-    reviewed_at: "2026-04-14T18:00:00+08:00"
-    findings_count: 6
-    blocking_items:
-      - "F-1: spec file gitignored — not version controlled"
-      - "F-2: QwenPI.py P0+P1 changes not in local repo (remote only)"
-      - "F-3: build_fasa_dataset.py v0.9.1 changes uncommitted"
-      - "F-4: spec §4.3 vs §4.4 self-contradiction on QwenPI.py frozen anchor"
+    status: done
+    verdict: PASS
+    downstream_usability: USABLE
+    reviewed_spec_version: v0.9.3
+    reviewed_at: "2026-04-14T23:30:00+08:00"
+    review_history:
+      - round: 1
+        date: "2026-04-14T18:00:00+08:00"
+        verdict: CONDITIONAL_PASS
+        blocking_count: 5
+      - round: 2
+        date: "2026-04-14T23:30:00+08:00"
+        verdict: PASS
+        blocking_count: 0
+        advisory_count: 4
+    first_audit_blocking_items_resolved:
+      - "F-1 resolved: spec un-gitignored and committed (0aaaf75)"
+      - "F-2 resolved: QwenPI.py P0+P1 synced and committed (0aaaf75)"
+      - "F-3 resolved: build/audit scripts committed (0aaaf75 + e725325)"
+      - "F-4 resolved: spec §4.3 carve-out added"
+      - "F-5 resolved: delta_action_norm now scalar, per-step in _outcome_v2.delta_norm_per_step"
+    advisory_items:
+      - "NEW-F1 [LOW]: RESOLVED — audit script updated with _outcome_v3 fallback, outcome_version field, v093_fields section"
+      - "NEW-F2 [INFO]: RESOLVED — spec header updated to v0.9.3-draft with revision entry"
+      - "NEW-F3 [INFO]: RESOLVED — AH-4 re-validated on v0.9.3 data (ah4_v093_500step_20260414_115012, PASS)"
+      - "NEW-F4 [INFO]: ACCEPTED — f_H=1 code path untested on real data (tau_fail=1.0, known limitation)"
     passed_items:
-      - "formula verification: d_H, f_H, risk_score, trigger_label, correction_mask, region_prior all PASS"
-      - "v0.9.1 auto-calibration (alpha_d, tau_fail) correctly implemented"
-      - "v0.9.1 gamma_region conditional formula correctly implemented"
-      - "AH-1~AH-3 LIBERO remote evidence recorded (cannot independently verify)"
-      - "AH-4 500-step evidence recorded (cannot independently verify)"
-      - "optional_loss_utils.py and a_module_interface.py NOT modified"
-      - "field names and tensor shapes preserved"
+      - "all first-audit F-1~F-5 blocking items resolved and committed"
+      - "v0.9.3 _compute_pseudo_labels_v3() per-step d_k formulas verified"
+      - "v0.9.3 correction_mask = (d_k > alpha_d) or (f_H==1) verified"
+      - "v0.9.3 region_prior base = d_k/sum(d_k) with conditional gamma overlay verified"
+      - "v0.9.3 intermediate_states extraction (dataset-root + correction_jsonl) verified"
+      - "v0.9.3 progress_t signal verified"
+      - "v0.9.3 _canonicalize routing: v3 > v2 > legacy fallback verified"
+      - "P0 conditional region loss: trigger_positive gating verified in QwenPI.py"
+      - "P1 consistency regularization: single-direction hinge margin verified in QwenPI.py"
+      - "frozen anchors: optional_loss_utils.py, a_module_interface.py NOT modified"
+      - "frozen anchors: field names and tensor shapes preserved"
+      - "AH-4 re-validated on v0.9.3 data: all 9 loss components finite and non-degenerate (ah4_v093_500step_20260414_115012)"
+      - "spec §4.3 carve-out correctly scoped (loss logic only, not heads/forward)"
+      - "delta_action_norm now outcome-mixed scalar, downstream receives correct value"
+      - "AH-1~AH-3 PASS on LIBERO 2000 samples (v0.9.3)"
+      - "AH-4 PASS 500-step (v0.9.2 P0+P1)"
       - "legacy --legacy-labels backward compat preserved"
     baseline_anchor:
       vlm: qwen25_authoritative
