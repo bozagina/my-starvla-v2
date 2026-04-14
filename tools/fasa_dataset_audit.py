@@ -231,11 +231,17 @@ def main() -> None:
         ],
     }
     if d_H_values:
+        import numpy as _np
+        d_arr = _np.array(d_H_values, dtype=_np.float64)
         summary["outcome_label_audit"]["d_H_count"] = len(d_H_values)
-        summary["outcome_label_audit"]["d_H_mean"] = float(sum(d_H_values) / len(d_H_values))
-        sorted_dh = sorted(d_H_values)
-        p90_idx = int(len(sorted_dh) * 0.90)
-        summary["outcome_label_audit"]["d_H_P90"] = sorted_dh[min(p90_idx, len(sorted_dh) - 1)]
+        summary["outcome_label_audit"]["d_H_mean"] = float(_np.mean(d_arr))
+        summary["outcome_label_audit"]["d_H_P10"] = float(_np.quantile(d_arr, 0.10))
+        summary["outcome_label_audit"]["d_H_P25"] = float(_np.quantile(d_arr, 0.25))
+        summary["outcome_label_audit"]["d_H_P50"] = float(_np.quantile(d_arr, 0.50))
+        summary["outcome_label_audit"]["d_H_P75"] = float(_np.quantile(d_arr, 0.75))
+        summary["outcome_label_audit"]["d_H_P90"] = float(_np.quantile(d_arr, 0.90))
+        summary["outcome_label_audit"]["d_H_P95"] = float(_np.quantile(d_arr, 0.95))
+        summary["outcome_label_audit"]["d_H_max"] = float(_np.max(d_arr))
 
     if args.output_json:
         output_path = Path(args.output_json).expanduser().resolve()

@@ -173,13 +173,6 @@ class Qwen_PI(baseframework):
             return {}, {}
 
         pooled_hidden = pooled_hidden.to(dtype=action_loss.dtype)
-        targets = build_optional_hook_targets(
-            examples,
-            chunk_len=self.chunk_len,
-            embedding_dim=self.a_embed_dim,
-            device=action_loss.device,
-            dtype=action_loss.dtype,
-        )
         output_dict: dict[str, torch.Tensor] = {}
         debug_metrics: dict[str, float] = {}
         a_predictions = self.a_module_interface.predict(
@@ -189,6 +182,15 @@ class Qwen_PI(baseframework):
             chunk_len=self.chunk_len,
         )
         debug_metrics.update(getattr(a_predictions, "debug_metrics", {}))
+        # Standalone in-loop mode may attach runtime `a_outputs` during predict().
+        # Build targets afterwards so embed supervision can consume that payload.
+        targets = build_optional_hook_targets(
+            examples,
+            chunk_len=self.chunk_len,
+            embedding_dim=self.a_embed_dim,
+            device=action_loss.device,
+            dtype=action_loss.dtype,
+        )
 
         a_cfg = _cfg_get(hook_cfg, "a_loss", None)
         if _cfg_enabled(a_cfg, "enabled", default=False):
@@ -235,6 +237,18 @@ class Qwen_PI(baseframework):
             weighted_embed_loss = embed_weight * embed_loss_component if embed_enabled else action_loss.new_zeros(())
             a_loss = weighted_risk_loss + weighted_trigger_loss + weighted_embed_loss
 
+            # P1 (v0.9.2): trigger-region consistency regularization
+            consist_weight = float(_cfg_get(a_cfg, "consist_weight", 0.1))
+            consist_loss = action_loss.new_zeros(())
+            region_logits_for_consist = a_predictions.region_logits
+            if consist_weight > 0 and region_logits_for_consist is not None:
+                trigger_prob = torch.sigmoid(trigger_logit)
+                region_prob_mean = torch.sigmoid(region_logits_for_consist).mean(dim=-1)
+                margin = region_prob_mean - trigger_prob - 0.1
+                consist_loss = consist_weight * (F.relu(margin) ** 2).mean()
+                a_loss = a_loss + consist_loss
+            output_dict["a_loss_consist"] = consist_loss
+
             output_dict["a_loss_risk"] = weighted_risk_loss
             output_dict["a_loss_trigger"] = weighted_trigger_loss
             output_dict["a_loss_embed"] = weighted_embed_loss
@@ -264,6 +278,7 @@ class Qwen_PI(baseframework):
             delta_target_count = 0
             correction_mask_target_count = 0
             region_prior_target_count = 0
+            region_trigger_filtered_count = 0
 
             if targets["delta_mask"].any():
                 delta_mask = targets["delta_mask"]
@@ -273,22 +288,33 @@ class Qwen_PI(baseframework):
                 )
                 delta_target_count += int(delta_mask.sum().item())
 
+            # P0 (v0.9.2): region loss conditional on trigger_label=1
+            trigger_positive = targets["trigger_label"] > 0.5
+
             if targets["correction_mask_mask"].any():
-                correction_mask = targets["correction_mask_mask"]
-                region_component = region_component + correction_mask_weight * F.binary_cross_entropy_with_logits(
-                    region_logits[correction_mask],
-                    targets["correction_mask"][correction_mask].clamp(0.0, 1.0),
+                correction_mask = targets["correction_mask_mask"] & trigger_positive
+                if correction_mask.any():
+                    region_component = region_component + correction_mask_weight * F.binary_cross_entropy_with_logits(
+                        region_logits[correction_mask],
+                        targets["correction_mask"][correction_mask].clamp(0.0, 1.0),
+                    )
+                    correction_mask_target_count += int(correction_mask.sum().item())
+                region_trigger_filtered_count += int(
+                    (targets["correction_mask_mask"] & ~trigger_positive).sum().item()
                 )
-                correction_mask_target_count += int(correction_mask.sum().item())
 
             if targets["region_prior_mask"].any():
-                region_mask = targets["region_prior_mask"]
-                region_prob = torch.sigmoid(region_logits[region_mask])
-                region_component = region_component + region_prior_weight * F.mse_loss(
-                    region_prob,
-                    targets["region_prior"][region_mask].clamp(0.0, 1.0),
+                region_mask = targets["region_prior_mask"] & trigger_positive
+                if region_mask.any():
+                    region_prob = torch.sigmoid(region_logits[region_mask])
+                    region_component = region_component + region_prior_weight * F.mse_loss(
+                        region_prob,
+                        targets["region_prior"][region_mask].clamp(0.0, 1.0),
+                    )
+                    region_prior_target_count += int(region_mask.sum().item())
+                region_trigger_filtered_count += int(
+                    (targets["region_prior_mask"] & ~trigger_positive).sum().item()
                 )
-                region_prior_target_count += int(region_mask.sum().item())
 
             corrective_loss = delta_component + region_component
             output_dict["corrective_loss_delta"] = delta_component
@@ -300,6 +326,9 @@ class Qwen_PI(baseframework):
             )
             debug_metrics["debug/corrective_loss_region_prior_target_count"] = float(
                 region_prior_target_count
+            )
+            debug_metrics["debug/corrective_loss_region_trigger_filtered_count"] = float(
+                region_trigger_filtered_count
             )
             debug_metrics["debug/corrective_loss_target_count"] = float(
                 delta_target_count + correction_mask_target_count + region_prior_target_count

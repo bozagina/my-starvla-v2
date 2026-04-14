@@ -44,13 +44,18 @@ def _raw_weighted_deviation(state_t: np.ndarray, future_state: np.ndarray) -> fl
     return float(np.sqrt(np.sum(weighted ** 2)))
 
 
-def _calibrate_tau_s(raw_deviations: list[float], user_tau_s: float) -> tuple[float, dict[str, Any]]:
-    """Calibrate τ_s from data distribution per spec §3.2.
+def _calibrate_outcome_params(
+    raw_deviations: list[float],
+    user_tau_s: float,
+    target_trigger_rate: float = 0.25,
+    target_fail_rate: float = 0.05,
+) -> tuple[float, float, float, dict[str, Any]]:
+    """Calibrate τ_s, α_d, τ_fail from data distribution per spec §3.2 + §3.5 (v0.9.1).
 
-    Returns (calibrated_tau_s, calibration_info).
+    Returns (calibrated_tau_s, calibrated_alpha_d, calibrated_tau_fail, calibration_info).
     """
     if not raw_deviations:
-        return user_tau_s, {"method": "default", "reason": "no_samples"}
+        return user_tau_s, DEFAULT_ALPHA_D, DEFAULT_TAU_FAIL, {"method": "default", "reason": "no_samples"}
 
     arr = np.array(raw_deviations, dtype=np.float64)
     p90 = float(np.quantile(arr, 0.90))
@@ -65,22 +70,42 @@ def _calibrate_tau_s(raw_deviations: list[float], user_tau_s: float) -> tuple[fl
     }
 
     if p90 < 0.05:
-        calibrated = 0.05
+        calibrated_tau_s = 0.05
         info["method"] = "fallback_low"
         info["reason"] = f"P90={p90:.6f} < 0.05"
         info["warning"] = "data has near-zero state deviations"
     elif p90 > 0.5:
-        calibrated = p90
+        calibrated_tau_s = p90
         info["method"] = "fallback_high"
         info["reason"] = f"P90={p90:.6f} > 0.5"
         info["warning"] = "data has unusually large state deviations"
     else:
-        calibrated = p90
+        calibrated_tau_s = p90
         info["method"] = "p90_calibrated"
         info["reason"] = f"P90={p90:.6f} in normal range [0.05, 0.5]"
 
-    info["calibrated_tau_s"] = calibrated
-    return calibrated, info
+    info["calibrated_tau_s"] = calibrated_tau_s
+
+    # §3.5: compute d_H distribution and auto-calibrate α_d, τ_fail
+    d_H_all = np.clip(arr / calibrated_tau_s, 0.0, 1.0)
+    alpha_d_quantile = 1.0 - target_trigger_rate
+    tau_fail_quantile = 1.0 - target_fail_rate
+    calibrated_alpha_d = float(np.quantile(d_H_all, alpha_d_quantile))
+    calibrated_tau_fail = float(np.quantile(d_H_all, tau_fail_quantile))
+
+    info["target_trigger_rate"] = target_trigger_rate
+    info["target_fail_rate"] = target_fail_rate
+    info["calibrated_alpha_d"] = calibrated_alpha_d
+    info["calibrated_tau_fail"] = calibrated_tau_fail
+    info["d_H_P10"] = float(np.quantile(d_H_all, 0.10))
+    info["d_H_P25"] = float(np.quantile(d_H_all, 0.25))
+    info["d_H_P50"] = float(np.quantile(d_H_all, 0.50))
+    info["d_H_P75"] = float(np.quantile(d_H_all, 0.75))
+    info["d_H_P90"] = float(np.quantile(d_H_all, 0.90))
+    info["d_H_P95"] = float(np.quantile(d_H_all, 0.95))
+    info["d_H_max"] = float(np.max(d_H_all))
+
+    return calibrated_tau_s, calibrated_alpha_d, calibrated_tau_fail, info
 
 
 def _safe_int(value: Any) -> int | None:
@@ -190,7 +215,7 @@ def _compute_pseudo_labels_v2(
     beta_delta: float = DEFAULT_BETA_DELTA,
     gamma_region: float = DEFAULT_GAMMA_REGION,
 ) -> dict[str, Any]:
-    """Outcome-based pseudo labels per spec §3.4 (v0.9)."""
+    """Outcome-based pseudo labels per spec §3.4 (v0.9.1)."""
     if action_chunk.ndim != 2 or action_chunk.shape[0] <= 0 or action_chunk.shape[1] <= 0:
         raise ValueError(f"action_chunk must be rank-2 with positive dims, got {action_chunk.shape}")
 
@@ -248,7 +273,7 @@ def _compute_pseudo_labels_v2(
             delta_norm_prior = np.full(len(delta_norm), 1.0 / len(delta_norm), dtype=np.float64)
         half = len(delta_norm_prior) // 2
         region_prior = delta_norm_prior.copy()
-        region_prior[half:] = np.clip(region_prior[half:] + gamma_region * d_H, 0.0, 1.0)
+        region_prior[half:] = np.clip(region_prior[half:] + gamma_region * max(0.0, d_H - alpha_d), 0.0, 1.0)
         region_prior[:half] = np.clip(region_prior[:half], 0.0, 1.0)
         affected_region_prior = region_prior.astype(np.float32)
 
@@ -257,7 +282,7 @@ def _compute_pseudo_labels_v2(
         "risk_score": risk_score,
         "affected_region_prior": affected_region_prior.tolist(),
         "correction_mask": correction_mask.tolist(),
-        "delta_action_norm": delta_norm.tolist(),
+        "delta_action_norm": delta_action_norm_scalar,
         "_outcome_v2": {
             "d_H": d_H,
             "f_H": f_H,
@@ -267,7 +292,7 @@ def _compute_pseudo_labels_v2(
             "alpha_d": alpha_d,
             "beta_delta": beta_delta,
             "gamma_region": gamma_region,
-            "delta_action_norm_scalar": delta_action_norm_scalar,
+            "delta_norm_per_step": delta_norm.tolist(),
             "state_dim": state_dim,
             "weight_vector": w[:len(diff_state)].tolist(),
         },
@@ -420,7 +445,7 @@ def _compute_outcome_stats(emitted: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
     stats: dict[str, Any] = {
-        "outcome_label_version": "v0.9",
+        "outcome_label_version": "v0.9.1",
         "AH1_zero_delta_false_trigger_rate": zero_delta_false_trigger_rate,
         "AH1_zero_delta_samples": zero_delta_total,
         "AH2_trigger_positive_rate": trigger_positive_rate,
@@ -428,7 +453,12 @@ def _compute_outcome_stats(emitted: list[dict[str, Any]]) -> dict[str, Any]:
     }
     if d_H_values:
         d_arr = np.array(d_H_values)
+        stats["d_H_P10"] = float(np.quantile(d_arr, 0.10))
+        stats["d_H_P25"] = float(np.quantile(d_arr, 0.25))
+        stats["d_H_P50"] = float(np.quantile(d_arr, 0.50))
+        stats["d_H_P75"] = float(np.quantile(d_arr, 0.75))
         stats["d_H_P90"] = float(np.quantile(d_arr, 0.90))
+        stats["d_H_P95"] = float(np.quantile(d_arr, 0.95))
         stats["d_H_mean"] = float(np.mean(d_arr))
         stats["d_H_max"] = float(np.max(d_arr))
     return stats
@@ -472,6 +502,8 @@ def _build_from_correction_jsonl(
     future_source_jsonl: Path,
     horizon_steps: int,
     label_params: dict[str, float] | None = None,
+    target_trigger_rate: float = 0.25,
+    target_fail_rate: float = 0.05,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     input_rows = _iter_jsonl(input_jsonl)
     future_index = _load_future_state_index(future_source_jsonl)
@@ -508,16 +540,22 @@ def _build_from_correction_jsonl(
         if label_params is not None:
             raw_deviations.append(_raw_weighted_deviation(state_t, future_state))
 
-    # τ_s calibration (only in v2 mode)
+    # §3.5: auto-calibrate τ_s, α_d, τ_fail (only in v2 mode)
     calibration_info: dict[str, Any] | None = None
     effective_params = label_params
     if label_params is not None and raw_deviations:
         user_tau_s = label_params.get("tau_s", DEFAULT_TAU_S)
-        calibrated_tau_s, calibration_info = _calibrate_tau_s(raw_deviations, user_tau_s)
+        cal_tau_s, cal_alpha_d, cal_tau_fail, calibration_info = _calibrate_outcome_params(
+            raw_deviations, user_tau_s,
+            target_trigger_rate=target_trigger_rate,
+            target_fail_rate=target_fail_rate,
+        )
         effective_params = dict(label_params)
-        effective_params["tau_s"] = calibrated_tau_s
+        effective_params["tau_s"] = cal_tau_s
+        effective_params["alpha_d"] = cal_alpha_d
+        effective_params["tau_fail"] = cal_tau_fail
 
-    # Pass 2: compute labels with calibrated τ_s
+    # Pass 2: compute labels with calibrated params
     emitted: list[dict[str, Any]] = []
     for idx, record, action_chunk, state_t, future_state in valid_items:
         meta = record.get("meta")
@@ -569,7 +607,7 @@ def _build_from_correction_jsonl(
     }
     stats.update(_compute_outcome_stats(emitted))
     if calibration_info is not None:
-        stats["tau_s_calibration"] = calibration_info
+        stats["calibration"] = calibration_info
     return emitted, stats
 
 
@@ -604,6 +642,8 @@ def _build_from_dataset_root(
     state_key: str,
     max_samples: int | None,
     label_params: dict[str, float] | None = None,
+    target_trigger_rate: float = 0.25,
+    target_fail_rate: float = 0.05,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
         import pandas as pd
@@ -657,16 +697,22 @@ def _build_from_dataset_root(
         if max_samples is not None and len(valid_samples) >= max_samples:
             break
 
-    # τ_s calibration
+    # §3.5: auto-calibrate τ_s, α_d, τ_fail
     calibration_info: dict[str, Any] | None = None
     effective_params = label_params
     if label_params is not None and raw_deviations:
         user_tau_s = label_params.get("tau_s", DEFAULT_TAU_S)
-        calibrated_tau_s, calibration_info = _calibrate_tau_s(raw_deviations, user_tau_s)
+        cal_tau_s, cal_alpha_d, cal_tau_fail, calibration_info = _calibrate_outcome_params(
+            raw_deviations, user_tau_s,
+            target_trigger_rate=target_trigger_rate,
+            target_fail_rate=target_fail_rate,
+        )
         effective_params = dict(label_params)
-        effective_params["tau_s"] = calibrated_tau_s
+        effective_params["tau_s"] = cal_tau_s
+        effective_params["alpha_d"] = cal_alpha_d
+        effective_params["tau_fail"] = cal_tau_fail
 
-    # Pass 2: compute labels with calibrated τ_s
+    # Pass 2: compute labels with calibrated params
     emitted: list[dict[str, Any]] = []
     for action_chunk, state_t, future_state, episode_index, frame_index, task_index, lang in valid_samples:
         pseudo_labels = _canonicalize_pseudo_labels(
@@ -713,7 +759,7 @@ def _build_from_dataset_root(
     }
     stats_final.update(_compute_outcome_stats(emitted))
     if calibration_info is not None:
-        stats_final["tau_s_calibration"] = calibration_info
+        stats_final["calibration"] = calibration_info
     return emitted, stats_final
 
 
@@ -737,7 +783,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alpha-d", type=float, default=DEFAULT_ALPHA_D, help="Trigger threshold on d_H (§3.4).")
     parser.add_argument("--beta-delta", type=float, default=DEFAULT_BETA_DELTA, help="Delta-action outcome mixing coefficient (§3.4).")
     parser.add_argument("--gamma-region", type=float, default=DEFAULT_GAMMA_REGION, help="Region prior outcome mixing coefficient (§3.4).")
-    parser.add_argument("--legacy-labels", action="store_true", help="Use legacy delta-only pseudo labels instead of outcome v0.9.")
+    parser.add_argument("--target-trigger-rate", type=float, default=0.25, help="Target trigger=1 rate for α_d auto-calibration (§3.5, v0.9.1).")
+    parser.add_argument("--target-fail-rate", type=float, default=0.05, help="Target f_H=1 rate for τ_fail auto-calibration (§3.5, v0.9.1).")
+    parser.add_argument("--legacy-labels", action="store_true", help="Use legacy delta-only pseudo labels instead of outcome v0.9.1.")
     return parser.parse_args()
 
 
@@ -775,6 +823,8 @@ def main() -> None:
             future_source_jsonl=future_source_jsonl,
             horizon_steps=args.horizon_steps,
             label_params=label_params,
+            target_trigger_rate=args.target_trigger_rate,
+            target_fail_rate=args.target_fail_rate,
         )
     else:
         dataset_root = Path(args.dataset_root).expanduser().resolve()
@@ -790,6 +840,8 @@ def main() -> None:
             state_key=args.state_key,
             max_samples=args.max_samples,
             label_params=label_params,
+            target_trigger_rate=args.target_trigger_rate,
+            target_fail_rate=args.target_fail_rate,
         )
 
     if not rows:

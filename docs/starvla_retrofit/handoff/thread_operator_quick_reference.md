@@ -4,7 +4,33 @@
 
 ---
 
-## 通用启动流程（所有线程共用）
+## 一键启动（推荐）
+
+只需一条命令，自动完成 readiness 检查 + 从 manifest 提取所有信息 + 输出完整可复制粘贴的 prompt：
+
+```bash
+bash tools/handoff/start_thread.sh <THREAD_ID>
+```
+
+示例：
+
+```bash
+bash tools/handoff/start_thread.sh A-RES
+bash tools/handoff/start_thread.sh CP-BUILD
+```
+
+脚本会：
+1. 自动设置环境变量并运行 `pre_dev_readiness.sh`
+2. 从对应 manifest 中读取 gate / anchors / contracts / allowed paths 等
+3. 输出一份**填好所有具体值**的完整 prompt（bootstrap + 角色专属指令），直接复制到新 chat 即可
+
+**有效的 THREAD_ID**：`A-RES`、`A-BUILD`、`A-REVIEW`、`CP-RES`、`CP-BUILD`、`CP-REVIEW`
+
+---
+
+## 手动启动流程（备用，所有线程共用）
+
+如果你需要分步手动操作，可以使用以下流程：
 
 **第一步：设置环境变量**（将 `A-BUILD` 换成你要启动的线程 ID）
 
@@ -335,6 +361,7 @@ A-RES ──→ A-BUILD ──→ A-REVIEW ──→ CP-RES ──→ CP-BUILD �
 | `docs/algorithm1/handoff/progress_a_module.md`                  | A-module 进度 ledger                  |
 | `docs/algorithm1/handoff/progress_corrective_policy.md`         | CP 进度 ledger                        |
 | `docs/algorithm1/handoff/progress_live.md`                      | 全局进度主日志                             |
+| `tools/handoff/start_thread.sh`                                 | **一键启动脚本**（readiness + 完整 prompt 输出） |
 | `tools/handoff/validate_thread_v2.py`                           | 线程 manifest/identity/gate validator |
 | `tools/handoff/bootstrap_session.sh`                            | 启动脚本（含 `prompt-thread-v2` 子命令）      |
 | `tools/handoff/pre_dev_readiness.sh`                            | 开发就绪检查（含 v2 线程校验）                   |

@@ -1459,6 +1459,7 @@ class VLATrainer(TrainerUtils):
             ("a_loss_risk", "loss/risk", "a_loss"),
             ("a_loss_trigger", "loss/trigger", "a_loss"),
             ("a_loss_embed", "loss/embed", "a_loss"),
+            ("a_loss_consist", "loss/consist", "a_loss"),
             ("corrective_loss_delta", "loss/delta", "corrective_loss"),
             ("corrective_loss_region", "loss/region", "corrective_loss"),
         ]
