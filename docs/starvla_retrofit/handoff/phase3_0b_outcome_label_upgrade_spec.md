@@ -113,6 +113,8 @@ $$
 - 当仅有 $k=H$ 的 `future_state` 时：$f_k$ 只有一个值 $f_H$，此时所有公式中的 $\max_k f_k = f_H$
 - 若 BUILD 后续实现多步 future_state 回填，公式自然扩展，无需改 spec
 
+> **v0.9.3 实现**：中间步状态 $s_{t+1}, \ldots, s_{t+H}$ 已在 `_build_from_dataset_root` 中提取并存储为 `intermediate_states` 字段。逐步偏差 $d_k$ 用于 correction_mask 和 region_prior 计算（见 §3.4）。
+
 ### 3.4 Outcome Labels 计算公式
 
 #### risk_score
@@ -169,15 +171,38 @@ $$
 
 #### correction_mask
 
+v0.9.1（legacy）：
+
 $$
 \text{correction\_mask}[j] = \mathbb{1}\left[\delta\_norm[j] \geq Q_{75}(\delta\_norm)\ \text{or}\ f_H = 1\right]
 $$
 
-当 $f_H = 1$ 时整个 mask 激活为全 1。这是有意设计：failure 状态下整个剩余 chunk 都需要纠偏。
+> **v0.9.3 升级**：消除动作差分依赖，改为基于逐步状态偏差：
+>
+> $$
+> d_k = \text{clip}\left(\frac{\|s_{t+k} - s_t\|_W}{\tau_s},\ 0,\ 1\right), \quad k = 1, \ldots, H
+> $$
+>
+> $$
+> \text{correction\_mask}[k] = \mathbb{1}\left[d_k > \alpha_d\ \text{or}\ f_H = 1\right]
+> $$
+>
+> 当 $f_H = 1$ 时整个 mask 激活为全 1（与 v0.9.1 行为一致）。
+> correction_mask 和 region_prior 长度从 `action_chunk_len - 1` 变为 `horizon_steps`，下游 `_build_region_target_15` 重采样到 15 bin 不受影响。
+
+#### affected_region_prior（v0.9.3 升级）
+
+> **v0.9.3**：region_prior 基底从 `delta_norm_prior`（动作差分归一化分布）改为 `d_k` 归一化分布：
+>
+> $$
+> d\_k\_prior[k] = \frac{d_k}{\sum_{k=1}^{H} d_k}
+> $$
+>
+> outcome 叠加公式不变（$\gamma \cdot \max(0, d_H - \alpha_d)$ 叠加到后半段）。
 
 #### region_target_15（最终合成）
 
-保持原始合成逻辑 `max(prior, mask)` 不变，但因为上游 `prior` 和 `mask` 的语义已升级，下游自动受益。
+保持原始合成逻辑 `max(prior, mask)` 不变，但因为上游 `prior` 和 `mask` 的语义已升级（v0.9.3 基于状态偏差），下游自动受益。
 
 ### 3.5 自适应超参数标定（v0.9.1 新增）
 
@@ -262,6 +287,36 @@ $$
 | trigger 正样率 | 82.9% | ~25% |
 | f_H=1 比例 | ~35% | ~5% |
 | region 平均激活 bin | 7.91 | ~4.2 |
+
+---
+
+### 3.6 v0.9.3 伪标签管线升级（新增）
+
+#### 新增 record 字段
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `intermediate_states` | `list[list[float]]` | 中间步状态 $s_{t+1}, \ldots, s_{t+H}$，长度 = horizon_steps。`intermediate_states[-1]` = `future_state`（向后兼容）。 |
+| `progress_t` | `float \| null` | 轨迹进度信号 $p_t = \text{frame\_index} / \max(1, \text{episode\_length} - 1)$，范围 [0, 1]。correction_jsonl 来源若无进度信息则为 null。 |
+| `meta.episode_length` | `int` | 所属 episode 的帧数（仅 dataset-root 模式）。 |
+
+#### 标签变更
+
+| 字段 | v0.9.1 | v0.9.3 |
+|---|---|---|
+| `correction_mask` | 基于 $\delta\_norm[j] \geq Q_{75}$ 或 $f_H=1$；长度 = action_chunk_len - 1 | 基于 $d_k > \alpha_d$ 或 $f_H=1$；长度 = horizon_steps |
+| `affected_region_prior` | 基底 = delta_norm 归一化分布 | 基底 = $d_k$ 归一化分布 |
+| `trigger_label`, `risk_score`, `delta_action_norm` | 不变 | 不变 |
+| `_outcome_v3` | （不存在） | 包含 `d_k` 列表、`d_H`、`f_H` 等诊断信息 |
+
+#### 新增函数
+
+- `_compute_pseudo_labels_v3()`：接受 `intermediate_states` 参数，使用逐步状态偏差 $d_k$ 替代动作差分。
+- `_canonicalize_pseudo_labels()` 自动路由：有 intermediate_states 时用 v3，否则回退 v2。
+
+#### `--legacy-labels` 兼容
+
+legacy 模式不受影响：correction_mask 和 region_prior 保持 action_chunk_len - 1 长度、delta_norm 基底。新字段（intermediate_states、progress_t）仍然被添加到 record 中（加法性兼容）。
 
 ---
 

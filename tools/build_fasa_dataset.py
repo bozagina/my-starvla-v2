@@ -299,16 +299,138 @@ def _compute_pseudo_labels_v2(
     }
 
 
+def _compute_pseudo_labels_v3(
+    action_chunk: np.ndarray,
+    state_t: np.ndarray,
+    future_state: np.ndarray,
+    intermediate_states: list[np.ndarray],
+    *,
+    tau_s: float = DEFAULT_TAU_S,
+    tau_fail: float = DEFAULT_TAU_FAIL,
+    alpha_d: float = DEFAULT_ALPHA_D,
+    beta_delta: float = DEFAULT_BETA_DELTA,
+    gamma_region: float = DEFAULT_GAMMA_REGION,
+) -> dict[str, Any]:
+    """State-deviation-based pseudo labels per spec v0.9.3.
+
+    Uses per-step state deviations d_k = clip(||s_{t+k} - s_t||_W / tau_s, 0, 1)
+    to derive correction_mask and region_prior, eliminating action-diff dependency.
+    """
+    if action_chunk.ndim != 2 or action_chunk.shape[0] <= 0 or action_chunk.shape[1] <= 0:
+        raise ValueError(f"action_chunk must be rank-2 with positive dims, got {action_chunk.shape}")
+    if not intermediate_states:
+        raise ValueError("intermediate_states must be non-empty for v3 labels")
+
+    state_dim = state_t.shape[0]
+    w = _build_weight_vector(state_dim)
+    effective_tau_s = max(tau_s, 1e-8)
+
+    # Per-step state deviations d_k for k=1..H
+    d_k_list: list[float] = []
+    for k_state in intermediate_states:
+        diff = k_state.astype(np.float64) - state_t.astype(np.float64)
+        weighted = w[:len(diff)] * diff[:len(w)]
+        raw_dev = float(np.sqrt(np.sum(weighted ** 2)))
+        d_k_list.append(float(np.clip(raw_dev / effective_tau_s, 0.0, 1.0)))
+
+    d_k_arr = np.array(d_k_list, dtype=np.float64)
+    d_H = d_k_list[-1]
+
+    # Raw deviation of final step (for diagnostics, same as v2)
+    diff_H = future_state.astype(np.float64) - state_t.astype(np.float64)
+    weighted_H = w[:len(diff_H)] * diff_H[:len(w)]
+    raw_deviation = float(np.sqrt(np.sum(weighted_H ** 2)))
+
+    # f_H, risk_score, trigger_label — same as v2
+    f_H = 1 if d_H > tau_fail else 0
+    risk_score = float(np.clip(max(f_H, d_H), 0.0, 1.0))
+    trigger_label = 1 if (f_H == 1 or d_H > alpha_d) else 0
+
+    # delta_action_norm — same mixed scalar formula as v2
+    if action_chunk.shape[0] == 1:
+        delta_norm = np.zeros((0,), dtype=np.float32)
+    else:
+        delta_norm = np.linalg.norm(np.diff(action_chunk, axis=0), axis=1).astype(np.float32)
+    max_delta = float(delta_norm.max()) if delta_norm.size > 0 else 0.0
+    delta_action_norm_scalar = max(max_delta, beta_delta * d_H)
+
+    # correction_mask: based on per-step state deviation d_k
+    if f_H == 1:
+        correction_mask = np.ones(len(d_k_arr), dtype=np.int32)
+    else:
+        correction_mask = (d_k_arr > alpha_d).astype(np.int32)
+
+    # region_prior: based on d_k normalized distribution
+    d_k_sum = float(np.sum(d_k_arr))
+    if d_k_sum > 0:
+        d_k_prior = (d_k_arr / d_k_sum).astype(np.float64)
+    else:
+        d_k_prior = np.full(len(d_k_arr), 1.0 / len(d_k_arr), dtype=np.float64)
+
+    half = len(d_k_prior) // 2
+    region_prior = d_k_prior.copy()
+    region_prior[half:] = np.clip(
+        region_prior[half:] + gamma_region * max(0.0, d_H - alpha_d), 0.0, 1.0,
+    )
+    region_prior[:half] = np.clip(region_prior[:half], 0.0, 1.0)
+    affected_region_prior = region_prior.astype(np.float32)
+
+    return {
+        "trigger_label": trigger_label,
+        "risk_score": risk_score,
+        "affected_region_prior": affected_region_prior.tolist(),
+        "correction_mask": correction_mask.tolist(),
+        "delta_action_norm": delta_action_norm_scalar,
+        "_outcome_v3": {
+            "d_H": d_H,
+            "f_H": f_H,
+            "d_k": d_k_list,
+            "raw_deviation": raw_deviation,
+            "tau_s_effective": effective_tau_s,
+            "tau_fail": tau_fail,
+            "alpha_d": alpha_d,
+            "beta_delta": beta_delta,
+            "gamma_region": gamma_region,
+            "delta_norm_per_step": delta_norm.tolist(),
+            "state_dim": state_dim,
+            "weight_vector": w[:len(diff_H)].tolist(),
+        },
+    }
+
+
 def _canonicalize_pseudo_labels(
     value: Any,
     action_chunk: np.ndarray,
     *,
     state_t: np.ndarray | None = None,
     future_state: np.ndarray | None = None,
+    intermediate_states: list[np.ndarray] | None = None,
     label_params: dict[str, float] | None = None,
 ) -> dict[str, Any]:
-    use_v2 = state_t is not None and future_state is not None and label_params is not None
-    if use_v2:
+    use_v3 = (
+        state_t is not None
+        and future_state is not None
+        and intermediate_states is not None
+        and len(intermediate_states) > 0
+        and label_params is not None
+    )
+    use_v2 = (
+        not use_v3
+        and state_t is not None
+        and future_state is not None
+        and label_params is not None
+    )
+    if use_v3:
+        params = label_params or {}
+        computed = _compute_pseudo_labels_v3(
+            action_chunk, state_t, future_state, intermediate_states,
+            tau_s=params.get("tau_s", DEFAULT_TAU_S),
+            tau_fail=params.get("tau_fail", DEFAULT_TAU_FAIL),
+            alpha_d=params.get("alpha_d", DEFAULT_ALPHA_D),
+            beta_delta=params.get("beta_delta", DEFAULT_BETA_DELTA),
+            gamma_region=params.get("gamma_region", DEFAULT_GAMMA_REGION),
+        )
+    elif use_v2:
         params = label_params or {}
         computed = _compute_pseudo_labels_v2(
             action_chunk, state_t, future_state,
@@ -408,6 +530,7 @@ def _compute_outcome_stats(emitted: list[dict[str, Any]]) -> dict[str, Any]:
     zero_delta_total = 0
     d_H_values = []
     has_v2 = False
+    has_v3 = False
 
     for row in emitted:
         pseudo = row.get("pseudo_labels", {})
@@ -429,13 +552,20 @@ def _compute_outcome_stats(emitted: list[dict[str, Any]]) -> dict[str, Any]:
             if trigger == 1:
                 zero_delta_triggers += 1
 
+        outcome_v3 = pseudo.get("_outcome_v3", {})
         outcome_v2 = pseudo.get("_outcome_v2", {})
-        if isinstance(outcome_v2, dict) and "d_H" in outcome_v2:
+        if isinstance(outcome_v3, dict) and "d_H" in outcome_v3:
+            has_v2 = True
+            has_v3 = True
+            d_H_values.append(outcome_v3["d_H"])
+        elif isinstance(outcome_v2, dict) and "d_H" in outcome_v2:
             has_v2 = True
             d_H_values.append(outcome_v2["d_H"])
 
     if not has_v2:
         return {}
+
+    label_version = "v0.9.3" if has_v3 else "v0.9.1"
 
     n = len(trigger_labels)
     trigger_positive_rate = float(sum(trigger_labels)) / n if n > 0 else 0.0
@@ -445,7 +575,7 @@ def _compute_outcome_stats(emitted: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
     stats: dict[str, Any] = {
-        "outcome_label_version": "v0.9.1",
+        "outcome_label_version": label_version,
         "AH1_zero_delta_false_trigger_rate": zero_delta_false_trigger_rate,
         "AH1_zero_delta_samples": zero_delta_total,
         "AH2_trigger_positive_rate": trigger_positive_rate,
@@ -475,6 +605,8 @@ def _build_record(
     horizon_steps: int,
     pseudo_labels: dict[str, Any],
     a_outputs: Any = None,
+    intermediate_states: list[np.ndarray] | None = None,
+    progress_t: float | None = None,
 ) -> dict[str, Any]:
     region_target_15, region_source = _build_region_target_15(pseudo_labels, CANONICAL_REGION_LEN)
     out = {
@@ -493,6 +625,12 @@ def _build_record(
     }
     if isinstance(a_outputs, dict):
         out["a_outputs"] = a_outputs
+    if intermediate_states is not None:
+        out["intermediate_states"] = [
+            s.astype(np.float32).tolist() for s in intermediate_states
+        ]
+    if progress_t is not None:
+        out["progress_t"] = progress_t
     return out
 
 
@@ -509,7 +647,8 @@ def _build_from_correction_jsonl(
     future_index = _load_future_state_index(future_source_jsonl)
 
     # Pass 1: validate rows and collect raw deviations for τ_s calibration
-    valid_items: list[tuple[int, dict, np.ndarray, np.ndarray, np.ndarray]] = []
+    ValidItem = tuple[int, dict, np.ndarray, np.ndarray, np.ndarray, list[np.ndarray] | None, float | None]
+    valid_items: list[ValidItem] = []
     dropped_missing_future = 0
     dropped_invalid = 0
     raw_deviations: list[float] = []
@@ -536,7 +675,33 @@ def _build_from_correction_jsonl(
             dropped_invalid += 1
             continue
 
-        valid_items.append((idx, record, action_chunk, state_t, future_state))
+        # B4: try to resolve intermediate states s_{t+1}..s_{t+H} from future index
+        intermediate_states: list[np.ndarray] | None = None
+        int_states_raw = record.get("intermediate_states")
+        if isinstance(int_states_raw, list) and len(int_states_raw) > 0:
+            parsed = [_flatten_vector(s) for s in int_states_raw]
+            if all(s is not None for s in parsed):
+                intermediate_states = parsed  # type: ignore[assignment]
+        if intermediate_states is None:
+            resolved: list[np.ndarray] = []
+            for k in range(1, horizon_steps + 1):
+                k_key = (dataset_name, trajectory_id, sample_step + k)
+                k_state = future_index.get(k_key)
+                if k_state is None:
+                    break
+                resolved.append(k_state)
+            if len(resolved) == horizon_steps:
+                intermediate_states = resolved
+
+        # B5: progress signal from record or meta
+        progress_t: float | None = None
+        raw_progress = record.get("progress_t")
+        if raw_progress is None:
+            raw_progress = meta.get("progress_t")
+        if raw_progress is not None:
+            progress_t = _safe_float(raw_progress)
+
+        valid_items.append((idx, record, action_chunk, state_t, future_state, intermediate_states, progress_t))
         if label_params is not None:
             raw_deviations.append(_raw_weighted_deviation(state_t, future_state))
 
@@ -557,7 +722,7 @@ def _build_from_correction_jsonl(
 
     # Pass 2: compute labels with calibrated params
     emitted: list[dict[str, Any]] = []
-    for idx, record, action_chunk, state_t, future_state in valid_items:
+    for idx, record, action_chunk, state_t, future_state, intermediate_states, progress_t in valid_items:
         meta = record.get("meta")
         if not isinstance(meta, dict):
             meta = {}
@@ -569,6 +734,7 @@ def _build_from_correction_jsonl(
         pseudo_labels = _canonicalize_pseudo_labels(
             record.get("pseudo_labels"), action_chunk,
             state_t=state_t, future_state=future_state,
+            intermediate_states=intermediate_states,
             label_params=effective_params,
         )
         output_meta = {
@@ -592,6 +758,8 @@ def _build_from_correction_jsonl(
                 horizon_steps=horizon_steps,
                 pseudo_labels=pseudo_labels,
                 a_outputs=record.get("a_outputs"),
+                intermediate_states=intermediate_states,
+                progress_t=progress_t,
             )
         )
 
@@ -658,7 +826,10 @@ def _build_from_dataset_root(
         raise FileNotFoundError(f"No parquet episodes found under: {dataset_root / 'data'}")
 
     # Pass 1: extract samples and collect raw deviations for τ_s calibration
-    SampleTuple = tuple[np.ndarray, np.ndarray, np.ndarray, int, int, int | None, str]
+    SampleTuple = tuple[
+        np.ndarray, np.ndarray, np.ndarray, list[np.ndarray],
+        int, int, int | None, str, int, float,
+    ]
     valid_samples: list[SampleTuple] = []
     episodes_processed = 0
     skipped_short_episodes = 0
@@ -670,6 +841,7 @@ def _build_from_dataset_root(
         if len(df) == 0:
             continue
         episodes_processed += 1
+        episode_length = len(df)
         max_start = min(len(df) - action_chunk_len, len(df) - horizon_steps - 1)
         if max_start < 0:
             skipped_short_episodes += 1
@@ -682,13 +854,26 @@ def _build_from_dataset_root(
             ]
             action_chunk = np.stack(action_rows, axis=0).astype(np.float32)
             state_t = np.asarray(df.iloc[start][state_key], dtype=np.float32).reshape(-1)
-            future_state = np.asarray(df.iloc[start + horizon_steps][state_key], dtype=np.float32).reshape(-1)
+
+            # B4: extract intermediate states s_{t+1} ... s_{t+H}
+            intermediate_states = [
+                np.asarray(df.iloc[start + k][state_key], dtype=np.float32).reshape(-1)
+                for k in range(1, horizon_steps + 1)
+            ]
+            future_state = intermediate_states[-1]
+
             episode_index = int(df.iloc[start]["episode_index"])
             frame_index = int(df.iloc[start]["frame_index"])
             task_index = _safe_int(df.iloc[start]["task_index"])
             lang = task_map.get(task_index if task_index is not None else -1, f"task_index={task_index}")
 
-            valid_samples.append((action_chunk, state_t, future_state, episode_index, frame_index, task_index, lang))
+            # B5: progress signal
+            progress_t = float(frame_index) / max(1, episode_length - 1)
+
+            valid_samples.append((
+                action_chunk, state_t, future_state, intermediate_states,
+                episode_index, frame_index, task_index, lang, episode_length, progress_t,
+            ))
             if label_params is not None:
                 raw_deviations.append(_raw_weighted_deviation(state_t, future_state))
 
@@ -714,10 +899,14 @@ def _build_from_dataset_root(
 
     # Pass 2: compute labels with calibrated params
     emitted: list[dict[str, Any]] = []
-    for action_chunk, state_t, future_state, episode_index, frame_index, task_index, lang in valid_samples:
+    for (
+        action_chunk, state_t, future_state, intermediate_states,
+        episode_index, frame_index, task_index, lang, episode_length, progress_t,
+    ) in valid_samples:
         pseudo_labels = _canonicalize_pseudo_labels(
             None, action_chunk,
             state_t=state_t, future_state=future_state,
+            intermediate_states=intermediate_states,
             label_params=effective_params,
         )
         meta = {
@@ -729,6 +918,7 @@ def _build_from_dataset_root(
             "action_chunk_len": int(action_chunk.shape[0]),
             "action_dim": int(action_chunk.shape[1]),
             "state_dim": int(state_t.shape[0]),
+            "episode_length": episode_length,
         }
         emitted.append(
             _build_record(
@@ -740,6 +930,8 @@ def _build_from_dataset_root(
                 future_state_step=frame_index + horizon_steps,
                 horizon_steps=horizon_steps,
                 pseudo_labels=pseudo_labels,
+                intermediate_states=intermediate_states,
+                progress_t=progress_t,
             )
         )
 

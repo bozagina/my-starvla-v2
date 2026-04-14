@@ -6753,3 +6753,86 @@ Copy this block for each new entry:
   - A-RES: resolve F-5 delta_action_norm spec-implementation gap.
   - A-REVIEW: re-audit after blocking items resolved.
   - Remote: AH-5 evaluation when corrective policy is ready.
+
+## [2026-04-14 21:00:00 +08:00] A-BUILD / A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE: Resolve A-REVIEW Blocking Items (Part A)
+
+- Owner: OC
+- Thread: A-BUILD
+- Status: DONE
+- Objective:
+  - Resolve all A-REVIEW F-1~F-5 blocking items to upgrade from CONDITIONAL PASS to full PASS.
+- Actions taken:
+  - **F-1 [CRITICAL] resolved**: Removed `phase3_0b_outcome_label_upgrade_spec.md` from `.gitignore` line 253. Spec file now git-tracked.
+  - **F-2 [CRITICAL] resolved**: Synced QwenPI.py from remote server to local repo. P0 (`trigger_positive` gating for conditional region loss) and P1 (`consist_loss`/`consist_weight` for trigger-region consistency regularization) now committed locally. Verified: `trigger_positive`, `consist_loss`, `region_trigger_filtered_count` all present.
+  - **F-3 [HIGH] resolved**: `tools/build_fasa_dataset.py` (v0.9.1 adaptive calibration, conditional gamma_region, auto alpha_d/tau_fail) and `tools/fasa_dataset_audit.py` committed.
+  - **F-4 [MEDIUM] resolved**: Amended spec §4.3 frozen anchor table. Added carve-out: "QwenPI.py 模型结构（heads、forward 签名）冻结；`_compute_optional_hook_outputs` 中的 loss 计算逻辑允许修改（§4.4 P0+P1）". Added training/** carve-out for metric reporting logic.
+  - **F-5 [MEDIUM] resolved (方案 a)**: Modified `build_fasa_dataset.py` so `delta_action_norm` field now stores outcome-mixed scalar `max(max_delta, β·d_H)` directly instead of per-step list. Per-step delta norm list moved to `_outcome_v2.delta_norm_per_step`. Updated spec §3.4 with implementation note. Downstream `_coerce_delta_norm` now receives correct scalar value.
+- Evidence:
+  - Commit: `0aaaf75` — `[A-BUILD] resolve A-REVIEW F-1~F-5 blocking items for CONDITIONAL PASS`
+  - Files changed: 15 files, +2203 -187 lines
+  - Key files: `.gitignore`, `phase3_0b_outcome_label_upgrade_spec.md` (new tracked), `QwenPI.py`, `train_starvla.py`, `build_fasa_dataset.py`, `fasa_dataset_audit.py`
+- Decision:
+  - All A-REVIEW blocking items (F-1 through F-5) resolved in single commit.
+  - Part A complete; ready to proceed to Part B (pseudo-label pipeline upgrade v0.9.3).
+- Risks/Notes:
+  - F-5 fix changes `delta_action_norm` output format from list to scalar. Existing FASA datasets on remote server still have list-form. Server datasets must be rebuilt before next training run.
+  - F-6 (LOW, canonicalize override) not addressed — harmless for fresh builds.
+- Next step:
+  - Part B: implement intermediate_states extraction (B4), progress_t signal (B5), and state-deviation-based correction_mask/region_prior rewrite (B6).
+
+## [2026-04-14 22:00:00 +08:00] A-BUILD / A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE: Pseudo-Label Pipeline Upgrade v0.9.3 (Part B)
+
+- Owner: OC
+- Thread: A-BUILD
+- Status: DONE
+- Objective:
+  - Implement v0.9.3 pseudo-label pipeline: extract intermediate step states, add progress signal, rewrite correction_mask and region_prior to use per-step state deviation instead of action diffs.
+- Actions taken:
+  - **B4: intermediate_states extraction**
+    - Modified `_build_from_dataset_root()` to extract `s_{t+1}..s_{t+H}` from parquet episodes.
+    - `intermediate_states[-1]` = `future_state` (backward compatible).
+    - Modified `_build_from_correction_jsonl()` to extract intermediate_states from records or resolve from future_index.
+    - Added `intermediate_states` field to `_build_record()` output.
+  - **B5: progress_t signal**
+    - Computed `progress_t = frame_index / max(1, episode_length - 1)` in dataset-root mode.
+    - For correction_jsonl mode: extracted from record if present, else null.
+    - Added `progress_t` field to `_build_record()` output.
+    - Added `meta.episode_length` field.
+  - **B6: state-deviation-based correction_mask and region_prior**
+    - New function `_compute_pseudo_labels_v3()`: takes `intermediate_states`, computes per-step state deviation `d_k = clip(||s_{t+k} - s_t||_W / tau_s, 0, 1)`.
+    - `correction_mask[k] = (d_k > alpha_d) or (f_H == 1)` — replaces Q75 delta-norm threshold.
+    - `region_prior` base: `d_k / sum(d_k)` normalized distribution — replaces `delta_norm / sum(delta_norm)`.
+    - Outcome overlay preserved: `gamma * max(0, d_H - alpha_d)` on second half (unchanged).
+    - `delta_action_norm`: mixed scalar formula preserved (unchanged).
+    - `_canonicalize_pseudo_labels()` auto-routes to v3 when intermediate_states available.
+    - **Legacy mode (`--legacy-labels`) fully preserved**: old correction_mask/region_prior behavior unchanged.
+  - **Spec updates**: Added §3.6 (v0.9.3 new fields/labels), updated §3.3 (intermediate states note), updated §3.4 (v0.9.3 correction_mask/region_prior formulas).
+- Validation (LIBERO 2000 samples):
+  - `outcome_label_version`: v0.9.3
+  - `intermediate_states`: 2000/2000 non-empty, length=4 (=horizon_steps), `[-1]==future_state`: True
+  - `progress_t`: 2000/2000 present, range [0.0000, 0.9780]
+  - `_outcome_v3`: 2000/2000 present, `d_k` length=4, `d_k[-1]==d_H`: True
+  - `correction_mask` based on `d_k > alpha_d` (f_H=0): verified True
+  - `meta.episode_length`: 2000/2000 present
+  - `delta_action_norm`: scalar in all 2000 rows
+  - `correction_mask` length: 4 (was 7 in v0.9.1); `affected_region_prior` length: 4 (was 7)
+  - **AH-1: PASS** — zero-delta false trigger rate = 0%
+  - **AH-2: PASS** — trigger positive rate = 25.0% (gate: 1%~30%)
+  - **AH-3: PASS** — mean region active bins = 1.25 (gate: < 5) — **massive improvement from v0.9.1's 7.91**
+  - `--legacy-labels`: confirmed backward compatible (correction_mask len=7, region_prior len=7, delta_action_norm list form, no v2/v3 outcome)
+- Evidence:
+  - Build output: `/tmp/fasa_v093_validate.jsonl` (server), `/tmp/fasa_v093_validate_stats.json` (server)
+  - Legacy validation: `/tmp/fasa_legacy_validate.jsonl` (server)
+  - Calibration: method=p90_calibrated, tau_s=0.0678, alpha_d=0.769, tau_fail=1.0
+- Decision:
+  - v0.9.3 pseudo-label pipeline upgrade complete. Action-diff dependency eliminated for correction_mask and region_prior.
+  - AH-3 dramatically improved (1.25 vs 7.91) because state-deviation-based d_k distribution is more concentrated than action-diff delta_norm distribution.
+- Risks/Notes:
+  - f_H=1 samples: 0/2000 (tau_fail calibrated to 1.0 for LIBERO demos). The f_H=1 all-1s path is correct but untested on this dataset.
+  - correction_mask/region_prior length changed from action_chunk_len-1 (7) to horizon_steps (4). Downstream `_build_region_target_15` resamples to 15 bins, so no impact.
+  - Server FASA datasets must be rebuilt with v0.9.3 before next training run.
+- Next step:
+  - Commit Part B changes locally.
+  - A-REVIEW: re-audit Part A + Part B.
+  - Rebuild server FASA datasets with v0.9.3 for training.
+  - AH-5 evaluation when corrective policy is ready.

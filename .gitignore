@@ -232,7 +232,7 @@ starVLA/config/
 .tmp_remote_patch/
 
 # Local handoff docs generated during retrofit/harness drafting
-docs/algorithm1/handoff/manifests/
+
 docs/algorithm1/handoff/progress_a_module.md
 docs/algorithm1/handoff/progress_corrective_policy.md
 docs/algorithm1/handoff/a_module_acceptance_gates.md

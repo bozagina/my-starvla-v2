@@ -1,0 +1,186 @@
+schema_version: harness_v2_thread_manifest_v1
+thread_family: A-module
+round_id: A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE
+status: active
+summary: >
+  v0.9.3 pseudo-label pipeline upgrade complete. Part A resolved A-REVIEW F-1~F-5
+  blocking items (commit 0aaaf75). Part B implemented intermediate_states extraction,
+  progress_t signal, and state-deviation-based correction_mask/region_prior (v0.9.3).
+  AH-1~AH-3 validated on LIBERO 2000 samples. AH-3 improved from 7.91 to 1.25.
+  Pending: A-REVIEW re-audit, AH-5 LIBERO eval after corrective policy.
+
+global_anchors:
+  repo_scope: qwen_only
+  mainline_vlm: qwen25_authoritative
+  progress_log: docs/algorithm1/handoff/progress_live.md
+  acceptance_evidence:
+    - config.yaml
+    - metrics.jsonl
+    - summary.jsonl
+    - train.log
+    - train.raw.log
+
+contracts:
+  consume:
+    - p1_shared_builder_v1
+    - a_outputs_current
+    - pseudo_labels_current
+  emit:
+    - a_outputs_current_or_successor_under_review
+    - outcome_labels_v0_9_draft
+
+threads:
+  - thread_id: A-RES
+    role: RES
+    current_gate: phase3_0b_outcome_label_upgrade
+    owner: OC
+    status: done
+    delivered_artifacts:
+      - decision memo (in spec §3-4 + §4.4, v0.9.2)
+      - label semantics note (in spec §3, v0.9.2; §3.6 v0.9.3)
+      - acceptance hypothesis (in spec §5, AH-1~AH-5)
+      - hyperparameter calibration analysis (in spec §3.5, v0.9.1)
+      - training loss improvement design (in spec §4.4, v0.9.2)
+      - v0.9.3 pipeline upgrade design (in spec §3.6)
+      - research note — VAE/AcceRL analysis (docs/algorithm1/handoff/research_notes/phase3_0b_vae_accerl_analysis.md)
+      - docs/starvla_retrofit/handoff/phase3_0b_outcome_label_upgrade_spec.md (v0.9.3)
+    delivered_at: "2026-04-14T22:00:00+08:00"
+    delivery_history:
+      - version: v0.9
+        date: "2026-04-14T00:30:00+08:00"
+        content: "initial spec with fixed α_d=0.35, τ_fail=0.7"
+      - version: v0.9.1
+        date: "2026-04-14T03:30:00+08:00"
+        content: "auto-calibration amendment after LIBERO AH-2/AH-3 failure"
+      - version: v0.9.2
+        date: "2026-04-14T07:00:00+08:00"
+        content: "training loss improvements: P0 conditional region loss + P1 consistency regularization"
+    closed_risks:
+      - "R1: f_k defined as threshold on d_k"
+      - "R2: τ_s calibrated by P90 of weighted-L2 state deviation"
+      - "R3: W = group weights (pos=1.0, rot=0.5, grip=2.0)"
+      - "R7: α_d fixed value incompatible with P90-normalized d_H → auto-calibrated"
+      - "R8: τ_fail fixed value causes excessive f_H=1 → auto-calibrated"
+      - "R9: γ_region unconditional boost pollutes region → conditional formula"
+    remaining_risks:
+      - "R1': state-deviation-only f_k may miss semantic failures (LOW)"
+      - "R4: spec v0.9.2 not yet reviewed by A-REVIEW (MEDIUM)"
+      - "R6: bimodal d_H in mixed-task datasets (LOW)"
+      - "R10: P0 reduces region training samples to ~25% (LOW)"
+      - "R11: P1 λ_consist too large may suppress region diversity (LOW)"
+    baseline_anchor:
+      vlm: qwen25_authoritative
+      a_output_contract: frozen_current_round
+      schema: p1_shared_builder_v1
+    allowed_paths:
+      - docs/algorithm1/handoff/**
+      - docs/starvla_retrofit/handoff/**
+      - tools/*audit*.py
+      - tools/build_fasa_*.py
+    required_artifacts:
+      - decision memo
+      - label semantics note
+      - acceptance hypothesis
+    blocking_conditions:
+      - baseline drift unresolved
+      - label semantics not reviewable
+    handoff_to:
+      - A-BUILD
+      - A-REVIEW
+
+  - thread_id: A-BUILD
+    role: BUILD
+    current_gate: phase3_0b_outcome_label_upgrade
+    owner: OC
+    status: done
+    note: >
+      Part A: resolved A-REVIEW F-1~F-5 (commit 0aaaf75). Un-gitignored spec,
+      synced QwenPI.py P0+P1, committed build/audit scripts, fixed spec §4.3
+      carve-out, fixed delta_action_norm from list to scalar.
+      Part B: v0.9.3 pseudo-label upgrade — intermediate_states extraction (B4),
+      progress_t signal (B5), state-deviation-based correction_mask/region_prior (B6).
+      AH-1~AH-3 validated on LIBERO 2000 samples. AH-3: 1.25 (was 7.91 in v0.9.1).
+      AH-5 blocked on corrective policy build.
+    delivered_artifacts:
+      - Part A: F-1~F-5 resolution commit (0aaaf75)
+      - Part B: _compute_pseudo_labels_v3() with intermediate_states
+      - Part B: progress_t field
+      - Part B: LIBERO 2000-sample AH-1~AH-3 validation
+      - QwenPI.py P0+P1 code changes (synced from remote)
+      - train_starvla.py a_loss_consist metric reporting
+      - 500-step AH-4 evidence (metrics.jsonl, train.raw.log)
+      - spec v0.9.3 amendments (§3.3, §3.4, §3.6)
+    delivered_at: "2026-04-14T22:00:00+08:00"
+    upstream_spec: docs/starvla_retrofit/handoff/phase3_0b_outcome_label_upgrade_spec.md
+    upstream_spec_version: v0.9.3
+    baseline_anchor:
+      vlm: qwen25_authoritative
+      a_output_contract: frozen_current_round
+      schema: p1_shared_builder_v1
+    allowed_paths:
+      - starVLA/dataloader/**
+      - starVLA/model/framework/**
+      - starVLA/training/**
+      - tools/**
+      - docs/algorithm1/handoff/**
+      - docs/starvla_retrofit/handoff/**
+    required_artifacts:
+      - config diff
+      - local smoke evidence
+      - changed-file handoff note
+    blocking_conditions:
+      - unresolved upstream semantics
+      - qwen baseline conflict unresolved
+      - remote evidence required for acceptance
+    handoff_to:
+      - A-REVIEW
+
+  - thread_id: A-REVIEW
+    role: REVIEW
+    current_gate: phase3_0b_outcome_label_upgrade
+    owner: OC
+    status: pending_reaudit
+    verdict: CONDITIONAL_PASS (pending re-audit after Part A + Part B)
+    downstream_usability: NOT_USABLE (pending re-audit)
+    reviewed_spec_version: v0.9.2
+    pending_spec_version: v0.9.3
+    reviewed_at: "2026-04-14T18:00:00+08:00"
+    findings_count: 6
+    blocking_items:
+      - "F-1: spec file gitignored — not version controlled"
+      - "F-2: QwenPI.py P0+P1 changes not in local repo (remote only)"
+      - "F-3: build_fasa_dataset.py v0.9.1 changes uncommitted"
+      - "F-4: spec §4.3 vs §4.4 self-contradiction on QwenPI.py frozen anchor"
+    passed_items:
+      - "formula verification: d_H, f_H, risk_score, trigger_label, correction_mask, region_prior all PASS"
+      - "v0.9.1 auto-calibration (alpha_d, tau_fail) correctly implemented"
+      - "v0.9.1 gamma_region conditional formula correctly implemented"
+      - "AH-1~AH-3 LIBERO remote evidence recorded (cannot independently verify)"
+      - "AH-4 500-step evidence recorded (cannot independently verify)"
+      - "optional_loss_utils.py and a_module_interface.py NOT modified"
+      - "field names and tensor shapes preserved"
+      - "legacy --legacy-labels backward compat preserved"
+    baseline_anchor:
+      vlm: qwen25_authoritative
+      acceptance_rule: evidence_only
+      schema: p1_shared_builder_v1
+    allowed_paths:
+      - docs/algorithm1/handoff/**
+      - docs/starvla_retrofit/handoff/**
+      - tools/*audit*.py
+      - tools/handoff/**
+    required_artifacts:
+      - findings list
+      - artifact checklist
+      - usable_for_downstream verdict
+    blocking_conditions:
+      - missing artifacts
+      - no reproducible evidence
+    handoff_to:
+      - CP-RES
+      - CP-BUILD
+
+downstream_rule:
+  cp_build_start_condition: >
+    CP-BUILD must stay blocked until A-REVIEW explicitly states whether the
+    current A-output contract is usable as corrective-policy input.
