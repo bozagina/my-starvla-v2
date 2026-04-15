@@ -6956,3 +6956,209 @@ Copy this block for each new entry:
 - Next step:
   - phase3_0b gate: all AH-1~AH-4 PASS. AH-5 (LIBERO eval) blocked on corrective policy.
   - Corrective policy development can proceed using v0.9.3 A-output contract.
+
+## [2026-04-15 00:30:00 +08:00] A-REVIEW / A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE: Advisory Verification (Round 3) — PASS CONFIRMED
+
+- Owner: OC
+- Thread: A-REVIEW
+- Round: A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE
+- Status: PASS CONFIRMED
+- Downstream usability: **USABLE** (unchanged)
+- Objective:
+  - Verify A-BUILD's resolution of A-REVIEW Round 2 advisory items (NEW-F1~F3) in commit 680fba3.
+  - Deep-check optional_loss_utils compatibility with v0.9.3 correction_mask/region_prior length change (4 vs 7).
+  - Cross-validate commit completeness across 0aaaf75, e725325, 680fba3.
+- Advisory resolution verification:
+  - **NEW-F1 [LOW] RESOLVED**: `fasa_dataset_audit.py` L162-176 now checks `_outcome_v3` first (priority v3 > v2). New fields: `outcome_version` ("v3"/"v2"/"none"), `v093_fields` section (intermediate_states, progress_t, delta_action_norm scalar counts). d_H distribution stats extracted from v3 dict when present. ✓
+  - **NEW-F2 [INFO] RESOLVED**: Spec header updated to `status: v0.9.3-draft` (L2). Revision list now includes v0.9.3 entry (L11). ✓
+  - **NEW-F3 [INFO] RESOLVED**: AH-4 re-validated on v0.9.3 FASA dataset. Run ID: `ah4_v093_500step_20260414_115012`. 500 steps, 4 GPU DeepSpeed ZeRO-2. Results: all 9 loss components finite and non-degenerate. Total loss 13.46 → 1.96 (-85.5%). loss/consist max=0.0006 (active, hinge margin working). loss/region mean=0.32 (intermittent zeros from P0 gating, expected). ✓
+  - **NEW-F4 [INFO] ACCEPTED**: f_H=1 code path remains untested on real data (LIBERO τ_fail=1.0). Logic correct per code inspection (L358-359: `if f_H==1: all-ones`). Will naturally activate on datasets with actual failures. ✓
+- optional_loss_utils compatibility deep-check:
+  - `_coerce_vector(value, target_len=chunk_len)` at L16-30: v0.9.3 correction_mask (len=4) zero-padded to chunk_len (8). Positions 5-8 receive zero supervision → "no correction beyond observation horizon". Semantically correct.
+  - Zero-padding ratio increased from 12.5% (v0.9.1: 7→8) to 50% (v0.9.3: 4→8). No functional issue — AH-4 v0.9.3 empirically validates stable training.
+  - `_coerce_delta_norm` at L44-59: correctly handles both scalar (v0.9.3) and list (legacy) delta_action_norm. ✓
+  - `region_target_15` field: produced by `_build_region_target_15` (resamples to 15 bins) but NOT consumed by `optional_loss_utils` or training code. Analysis/diagnostic field only. ✓
+- Commit completeness cross-validation:
+  - **0aaaf75** (15 files): .gitignore, QwenPI.py P0+P1, train_starvla.py metric, build_fasa_dataset.py v0.9.1+F-5, fasa_dataset_audit.py AH checks, spec carve-out, handoff scripts. ✓
+  - **e725325** (5 files): build_fasa_dataset.py v0.9.3 (_compute_pseudo_labels_v3, intermediate_states, progress_t), spec §3.6, manifest, progress_live. ✓
+  - **680fba3** (5 files): fasa_dataset_audit.py v3 support, spec header v0.9.3-draft, AH-4 v0.9.3 evidence, manifest update, progress_live. ✓
+  - Frozen anchors: `optional_loss_utils.py` last commit 96b27d9 (2026-04-06), `a_module_interface.py` NOT modified. QwenPI.py only modified in 0aaaf75 (P0+P1 loss logic only). ✓
+- New observations (non-blocking, INFO):
+  - **OBS-1 [INFO]**: v0.9.3 region supervision effective density reduced — with horizon_steps=4 and chunk_len=8, only 4/8 positions carry real supervision signal (vs 7/8 in v0.9.1). AH-4 v0.9.3 shows loss/region is still non-degenerate (mean=0.32), so this is not problematic. If future configs use larger chunk_len (e.g. 16), the ratio drops further; monitor loss/region in those cases.
+  - **OBS-2 [INFO]**: `region_target_15` is generated (15-bin resampled) but unused in training. The training path uses raw pseudo_labels.correction_mask/affected_region_prior → `_coerce_vector` → chunk_len-sized tensors. The 15-bin field may be consumed by downstream corrective policy or used for analysis.
+- Verdict: **PASS CONFIRMED**
+  - All Round 2 advisory items verified resolved (NEW-F1~F3) or accepted (NEW-F4).
+  - optional_loss_utils fully compatible with v0.9.3 length changes.
+  - Commit chain complete and consistent.
+  - No new blocking or high-severity findings.
+  - 2 new INFO-level observations (OBS-1, OBS-2), neither blocking.
+- Downstream usability verdict: **USABLE** (unchanged)
+  - A-output contract remains stable: field names, formats, semantics all committed and validated.
+  - CP-BUILD and CP-RES may proceed without reservation.
+  - AH-5 evaluation to be conducted after CP-BUILD delivers a working corrective policy.
+- Next step:
+  - A-REVIEW for phase3_0b is fully closed. No further review rounds needed unless new code changes are submitted.
+  - CP-RES: begin corrective-policy research using A-output contract.
+  - CP-BUILD: proceed with corrective-policy implementation.
+  - Remote: AH-5 evaluation after corrective policy is operational.
+
+## [2026-04-15 01:00:00 +08:00] CP-REVIEW / CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM: 上游解封审查 — UPSTREAM_UNBLOCKED
+
+- Owner: OC
+- Thread: CP-REVIEW
+- Round: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+- Status: UPSTREAM_UNBLOCKED
+- Objective:
+  - 验证上游 A-REVIEW 是否已正式发布下游可用性裁决，确认 CP 线程族解封条件是否满足。
+- 修改了什么:
+  - `docs/algorithm1/handoff/manifests/cp_current_round.yaml`
+    - `upstream_gate.current_verdict`: `pending` → `USABLE`
+    - `status`: `BLOCKED_WAIT_UPSTREAM` → `UNBLOCKED`
+    - `cp_review_verdict`: 新增 `UPSTREAM_UNBLOCKED`
+    - CP-RES/CP-BUILD 状态: `BLOCKED_WAIT_UPSTREAM` → `READY`
+    - CP-REVIEW 状态: `BLOCKED_WAIT_UPSTREAM` → `ACTIVE`（等待 CP-BUILD 交付后执行正式审查）
+    - `downstream_rule.cp_build_start_condition`: 更新为 SATISFIED
+- 证据是什么:
+  - `a_module_current_round.yaml`: `threads[A-REVIEW].downstream_usability = USABLE`
+  - `a_module_current_round.yaml`: `threads[A-REVIEW].status = done`, `verdict = PASS`
+  - `a_module_current_round.yaml`: `review_history[round=3].verdict = PASS_CONFIRMED`（2026-04-15T00:30:00+08:00）
+  - `progress_live.md` 最新条目（2026-04-15 00:30:00）: "Downstream usability: USABLE (unchanged)"
+  - `progress_live.md`: "CP-BUILD and CP-RES may proceed without reservation."
+- Findings list:
+  - **F-1 [已修正]**: `cp_current_round.yaml` 的 `upstream_gate.current_verdict` 字段为 `pending`，与上游 A-REVIEW 已发布 `USABLE` 的实际状态不符。已更新。
+  - **F-2 [已修正]**: 所有 CP 线程状态滞留于 `BLOCKED_WAIT_UPSTREAM`，未反映上游解封事实。已更新为 READY/ACTIVE。
+  - **OBS-1 [INFO]**: `region_target_15` 字段（15-bin 重采样）由 A-module 生成但不参与训练。CP 侧需在 policy RFC 中声明是否计划消费该字段，避免歧义。
+  - **OBS-2 [INFO]**: `optional_loss_utils._coerce_vector` 将 v0.9.3 的 4 元素 correction_mask/region_prior 零填充至 chunk_len=8。CP-BUILD 设计 delta-action 策略时需评估此零填充对下游 correction 信号密度的影响（当前有效监督率 50%）。
+- Artifact checklist:
+  - [x] `a_module_current_round.yaml` 存在且含 A-REVIEW 裁决
+  - [x] A-REVIEW `downstream_usability = USABLE`，有明确字段证据
+  - [x] `progress_live.md` 存在对应 A-REVIEW Round 3 条目
+  - [x] v0.9.3 FASA 数据集已在服务器构建（`results/PseudoLabels/p3_0b_outcome_v093/`，2000行）
+  - [x] AH-4 v0.9.3 训练证据存在（`results/Checkpoints/ah4_v093_500step_20260414_115012/`）
+  - [x] `cp_current_round.yaml` 已更新反映解封状态
+  - [ ] CP-BUILD 交付物（待 CP-BUILD 产出后复核）
+  - [ ] AH-5 LIBERO eval（阻塞于 CP 交付，待远程验证）
+- 结论:
+  - 上游 A-REVIEW 已正式发布 `PASS_CONFIRMED` + `downstream_usability=USABLE`，文件证据充分。
+  - `cp_current_round.yaml` 的阻塞状态系遗留字段未同步，非真实阻塞。已修正。
+  - CP 线程族解封条件满足，CP-RES 和 CP-BUILD 可立即启动。
+- 裁决: **UPSTREAM_UNBLOCKED** — 上游门控已解除，等待 CP-BUILD 交付后执行正式 REVIEW
+- 还缺什么:
+  - CP-RES: 需交付 policy RFC、interface assumptions、blocked items list
+  - CP-BUILD: 需交付 corrective policy 实现、config diff、smoke 证据
+  - AH-5: 需在服务器执行 LIBERO eval（corrective policy 完成后）
+- 下一步:
+  - CP-RES: 启动 corrective policy 研究，基于 v0.9.3 A-output contract 定义 delta-action 目标
+  - CP-BUILD: 启动实现，消费 `a_outputs_current_reviewed`，产出 `delta_action_v0_draft`
+  - CP-REVIEW: 等待 CP-BUILD 交付，届时执行代码/语义/证据三重独立审查
+
+## [2026-04-15 02:00:00 +08:00] CP-RES / CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM: corrective policy 研究 — DONE
+
+- Owner: OC
+- Thread: CP-RES
+- Round: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+- Status: DONE
+- Objective:
+  - 定义 corrective policy 目标函数、训练范式、A 输出消费方式、以及验收口径。
+- 修改了什么:
+  - `docs/algorithm1/handoff/cp_res_policy_rfc.md`（新建）
+    - 定义 delta_action_v0_draft 输出契约
+    - 目标函数：4 个预测头（risk/trigger/delta/region），多任务损失结构
+    - 训练范式：复用 FASA v0.9.3 数据集 + 现有 corrective_loss 结构
+    - CP-AH-1~4 验收假设
+  - `docs/algorithm1/handoff/cp_res_interface_assumptions.md`（新建）
+    - 训练期消费字段：5 个 STABLE 字段
+    - 推理期消费字段：4 个 AModulePredictions 字段
+    - 零填充边界声明（correction_mask/region_prior: 4→8）
+    - BD-1~5 接口决策项（交 CP-BUILD）
+  - `docs/algorithm1/handoff/cp_res_blocked_items.md`（新建）
+    - 上游阻塞：UNBLOCKED
+    - 远程阻塞：CP-AH-4 BLOCKED_WAIT_REMOTE
+    - CP-BUILD 悬挂决策 BD-1~5
+  - `docs/algorithm1/handoff/manifests/cp_current_round.yaml`
+    - CP-RES status: READY → done
+    - delivered_artifacts 已记录
+  - `docs/algorithm1/handoff/progress_corrective_policy.md`
+    - 追加 CP-RES DONE 条目
+- 证据是什么:
+  - A-output contract v0.9.3：A-REVIEW PASS_CONFIRMED，upstream 已解封（证据来自上轮 CP-REVIEW 条目）
+  - `a_module_interface.py`：`AModulePredictions` dataclass 字段名确认（risk_pred/trigger_logit/delta_pred/region_logits）
+  - `optional_loss_utils.py`：`build_optional_hook_targets()` 确认训练期字段键名及 tensor 形状
+  - `phase3_0b_outcome_label_upgrade_spec.md` v0.9.3：字段语义和公式确认
+  - `cp_current_round.yaml`：blocking_conditions=[] 确认 CP-RES 无阻塞
+- 结论是什么:
+  - corrective policy 与 residual policy 语义等价（本仓确认）
+  - v0 训练范式：元数据预测头（非直接 Δa 回归），与现有 QwenPI.py 架构一致
+  - 消费字段全部 STABLE：risk_score / trigger_label / delta_action_norm / correction_mask / affected_region_prior
+  - 零填充语义已知且可接受（有效监督率 50%，AH-4 v0.9.3 验证通过）
+  - CP-AH-1~3 本地可验证；CP-AH-4 阻塞于远程
+- 还缺什么:
+  - CP-BUILD 需解决 BD-1~5 悬挂决策（action 混合机制、推理 mode、embedding 消费等）
+  - CP-BUILD 需交付：config diff、smoke 证据、changed-file handoff note
+  - 远程：CP-AH-4 LIBERO eval（等待 CP-BUILD 完成后执行）
+- 下一步:
+  - CP-BUILD: 基于本 RFC 启动实现（允许路径：starVLA/model/framework/**、starVLA/training/**、tools/**、docs/...）
+  - CP-REVIEW: 审核本 RFC 和 interface assumptions（可并行于 CP-BUILD 实现）
+  - 远程（CP-BUILD 完成后）: 执行 500-step smoke train → CP-AH-1~3 验证 → LIBERO eval → CP-AH-4
+
+## [2026-04-15 14:00:00 +08:00] CP-BUILD / CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM: One-Step Corrective Flow — 本地实现完成
+
+- Owner: OC
+- Thread: CP-BUILD
+- Round: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+- Gate: phase3_0b_cp_build
+- Status: BLOCKED_WAIT_REMOTE
+- Objective:
+  - 实现 CorrectiveFlowHead：基于 A-module metadata（trigger/region）进行一步 ODE velocity 修正
+  - 集成至 QwenPI (forward + predict_action)，注册至 trainer loss hook pipeline
+- BD-1~5 决策:
+  - **BD-1 (action 混合机制)**: region-gated additive — `a_corrected = a_base + sigmoid(region_logits) * pred_velocity`
+  - **BD-2 (独立 corrective action head)**: 否 — v0 使用小型 DiT 预测 velocity，不产出独立 action chunk
+  - **BD-3 (A-module inference mode)**: lite（与 CP-RES 建议一致）
+  - **BD-4 (消费 dynamic_embedding)**: 否（v0 简化，与 CP-RES 建议一致）
+  - **BD-5 (消费 region_target_15)**: 否（使用 chunk_len-sized region_logits，与 CP-RES 建议一致）
+- 修改了什么:
+  - **新建** `starVLA/model/framework/corrective_flow_head.py`
+    - `MetadataEncoder`: MLP(1+chunk_len → hidden_dim)，编码 trigger_prob + region_logits
+    - `CorrectiveFlowHead`: ActionEncoder + MetadataEncoder + 小型 DiT(4层) + ActionDecoder
+    - forward(): velocity_gt = a_gt - a_prev; base_loss + region_weighted_loss
+    - predict(): region-gated one-step correction
+  - **修改** `starVLA/model/framework/QwenPI.py`
+    - `__init__`: 条件实例化 CorrectiveFlowHead（读取 framework.corrective_flow 配置）
+    - `forward()`: 在 optional_hook_outputs 后计算 corrective_flow_loss，输出至 output_dict
+    - `predict_action()`: 推理时若 trigger_prob > threshold 则执行一步修正
+  - **修改** `starVLA/training/train_starvla.py`
+    - `hook_specs` 新增 `("corrective_flow", "corrective_flow_loss", "loss/corrective_flow")`
+  - **新建** `starVLA/config/training/starvla_train_pi_qwen25_corrective_flow.yaml`
+    - framework.corrective_flow: enabled=true, 4层, hidden=1024, heads=16
+    - trainer.optional_loss_hooks.corrective_flow: scale=0.5, noise_scale=0.05
+- 冻结约束遵守:
+  - `optional_loss_utils.py`: 未修改 ✓
+  - `a_module_interface.py`: 未修改 ✓
+  - `LayerwiseFM_ActionHeader.py`: 未修改，仅 import ActionEncoder/MLP ✓
+  - `cross_attention_dit.py`: 未修改，仅 import DiT ✓
+- 证据是什么:
+  - 语法检查: 3 文件 AST parse 全部 PASS
+  - 结构检查: CorrectiveFlowHead 含 __init__/forward/predict/_encode_and_attend 全部 PASS
+  - QwenPI 引用检查: corrective_flow_enabled / corrective_flow_head / corrective_flow_loss 全部存在
+  - train_starvla hook_specs 检查: corrective_flow_loss / loss/corrective_flow 全部存在
+  - YAML 配置检查: 新配置解析正确，原配置向后兼容（无 corrective_flow 字段）
+  - Lint 检查: 全部 0 errors
+- 数据 pipeline 分析:
+  - T_full = 8 (chunk_len)，< 2*chunk_len=16
+  - 零填充 fallback 生效: a_prev = zeros，语义等价于从零起点学习 velocity
+- 结论:
+  - 本地实现和静态验证全部完成
+  - 代码已就绪，等待远程 GPU 服务器执行 smoke train 验证
+- 还缺什么:
+  - **远程 smoke train (500 step)**: 验证 corrective_flow_loss 有限且非退化
+  - **CP-AH-1**: trigger=0 样本 region loss = 0（P0 验证）
+  - **CP-AH-2**: 500-step 所有 corrective loss 分量 finite 且非退化
+  - **CP-AH-3**: a_loss_consist 有限且趋势下降
+  - **CP-AH-4**: Success@LIBERO 不劣于 A-only 基线（BLOCKED_WAIT_REMOTE）
+- 下一步:
+  1. 部署到远程: `bash tools/deploy_to_server.sh`
+  2. 启动 smoke train: `bash tools/run_remote_train.sh`（使用 corrective_flow 配置）
+  3. 查看日志: `bash tools/tail_latest_trainlog.sh`
+  4. 拉取结果: `bash tools/fetch_latest_run_files.sh`
+  5. 本地分析 metrics.jsonl 中 loss/corrective_flow 趋势

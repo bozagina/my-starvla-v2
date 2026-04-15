@@ -161,6 +161,30 @@ class Qwen_PI(baseframework):
             corrective_region_head=self.corrective_region_head,
         )
 
+        corr_flow_cfg = _cfg_get(
+            getattr(self.config, "framework", None), "corrective_flow", None
+        )
+        self.corrective_flow_enabled = _cfg_enabled(corr_flow_cfg, "enabled", default=False)
+        if self.corrective_flow_enabled:
+            from starVLA.model.framework.corrective_flow_head import CorrectiveFlowHead
+
+            corr_hidden = int(_cfg_get(corr_flow_cfg, "hidden_dim", 1024))
+            corr_layers = int(_cfg_get(corr_flow_cfg, "num_layers", 4))
+            corr_heads = int(_cfg_get(corr_flow_cfg, "num_heads", 16))
+            corr_region_w = float(_cfg_get(corr_flow_cfg, "region_loss_weight", 0.5))
+            self.corrective_flow_head = CorrectiveFlowHead(
+                action_dim=config.framework.action_model.action_dim,
+                chunk_len=self.chunk_len,
+                hidden_dim=corr_hidden,
+                vl_hidden_dim=llm_hidden_size,
+                num_layers=corr_layers,
+                num_heads=corr_heads,
+                region_loss_weight=corr_region_w,
+            )
+            self.corrective_flow_trigger_threshold = float(
+                _cfg_get(corr_flow_cfg, "trigger_threshold", 0.5)
+            )
+
     def _compute_optional_hook_outputs(
         self,
         *,
@@ -422,6 +446,45 @@ class Qwen_PI(baseframework):
         if hook_debug_metrics:
             output_dict["debug_metrics"] = hook_debug_metrics
 
+        if self.corrective_flow_enabled:
+            cf_trainer_cfg = _cfg_get(
+                _cfg_get(
+                    getattr(self.config, "trainer", None),
+                    "optional_loss_hooks",
+                    None,
+                ),
+                "corrective_flow",
+                None,
+            )
+            if _cfg_enabled(cf_trainer_cfg, "enabled", default=False):
+                noise_scale = float(_cfg_get(cf_trainer_cfg, "noise_scale", 0.05))
+
+                if actions.shape[1] >= 2 * self.chunk_len:
+                    a_prev = actions[:, : self.chunk_len, :]
+                else:
+                    a_prev = torch.zeros_like(actions_target)
+                a_prev_noisy = a_prev + noise_scale * torch.randn_like(a_prev)
+
+                pooled_for_cf = base_hidden.to(dtype=action_model_dtype).mean(dim=1)
+                a_predictions_cf = self.a_module_interface.predict(
+                    pooled_hidden=pooled_for_cf,
+                    examples=examples,
+                    action_loss=action_loss,
+                    chunk_len=self.chunk_len,
+                )
+                trigger_prob = torch.sigmoid(a_predictions_cf.trigger_logit).detach().unsqueeze(-1)
+                region_logits = a_predictions_cf.region_logits.detach()
+                vl_embs_for_cf = base_hidden.to(dtype=action_model_dtype).detach()
+
+                cf_loss, _ = self.corrective_flow_head(
+                    vl_embs=vl_embs_for_cf,
+                    a_prev=a_prev_noisy.to(dtype=action_model_dtype),
+                    a_gt=actions_target.to(dtype=action_model_dtype),
+                    trigger_prob=trigger_prob.to(dtype=action_model_dtype),
+                    region_logits=region_logits.to(dtype=action_model_dtype),
+                )
+                output_dict["corrective_flow_loss"] = cf_loss
+
         return output_dict
 
     @torch.inference_mode()
@@ -485,6 +548,26 @@ class Qwen_PI(baseframework):
             pred_actions = self.action_model.predict_action(action_vl_embs, state)  # (B, chunk_len, action_dim)
 
         normalized_actions = pred_actions.detach().to(dtype=torch.float32).cpu().numpy()
+
+        if self.corrective_flow_enabled:
+            pooled_cf = base_hidden.to(dtype=action_model_dtype).mean(dim=1)
+            a_predictions_cf = self.a_module_interface.predict(
+                pooled_hidden=pooled_cf,
+                examples=examples,
+                action_loss=torch.zeros(1, device=base_hidden.device),
+                chunk_len=self.chunk_len,
+            )
+            trigger_prob = torch.sigmoid(a_predictions_cf.trigger_logit)
+            if trigger_prob.max().item() > self.corrective_flow_trigger_threshold:
+                region_logits = a_predictions_cf.region_logits
+                a_corrected = self.corrective_flow_head.predict(
+                    vl_embs=base_hidden.to(dtype=action_model_dtype),
+                    a_base=pred_actions,
+                    trigger_prob=trigger_prob.unsqueeze(-1),
+                    region_logits=region_logits,
+                )
+                normalized_actions = a_corrected.detach().to(dtype=torch.float32).cpu().numpy()
+
         return {"normalized_actions": normalized_actions}
 
 

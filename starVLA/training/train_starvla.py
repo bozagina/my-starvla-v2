@@ -1428,6 +1428,7 @@ class VLATrainer(TrainerUtils):
         hook_specs = [
             ("a_loss", "a_loss", "loss/a_module"),
             ("corrective_loss", "corrective_loss", "loss/corrective"),
+            ("corrective_flow", "corrective_flow_loss", "loss/corrective_flow"),
         ]
 
         for hook_name, default_key, default_metric_name in hook_specs:

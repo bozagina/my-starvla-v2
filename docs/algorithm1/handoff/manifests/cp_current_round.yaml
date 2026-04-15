@@ -1,11 +1,15 @@
 schema_version: harness_v2_thread_manifest_v1
 thread_family: corrective-policy
 round_id: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
-status: BLOCKED_WAIT_UPSTREAM
+status: UNBLOCKED
+cp_review_verdict: UPSTREAM_UNBLOCKED
+cp_review_date: "2026-04-15T01:00:00+08:00"
 summary: >
-  Corrective-policy thread family bootstrap. All implementation threads remain
-  blocked until A-REVIEW issues an explicit downstream-usability verdict
-  (usable_for_downstream = yes|conditional).
+  CP-REVIEW bootstrap audit complete. Upstream A-REVIEW has issued PASS_CONFIRMED
+  with downstream_usability=USABLE (a_module_current_round.yaml, reviewed_at
+  2026-04-15T00:30:00+08:00, progress_live.md final entry). All CP threads are
+  unblocked. CP-RES and CP-BUILD may proceed with corrective-policy development
+  using the v0.9.3 A-output contract.
 
 global_anchors:
   repo_scope: qwen_only
@@ -29,17 +33,38 @@ upstream_gate:
     A-REVIEW must have emitted usable_for_downstream = yes|conditional
     in the A-module current round manifest or progress ledger.
   verdict_source: docs/algorithm1/handoff/manifests/a_module_current_round.yaml
-  current_verdict: pending
+  current_verdict: USABLE
+  verdict_detail: >
+    A-REVIEW Round 3 (2026-04-15T00:30:00+08:00): PASS_CONFIRMED,
+    downstream_usability=USABLE, no blocking items. A-output contract
+    v0.9.3 stable. CP-BUILD and CP-RES may proceed without reservation.
+  evidence_refs:
+    - "a_module_current_round.yaml: threads[A-REVIEW].downstream_usability = USABLE"
+    - "a_module_current_round.yaml: threads[A-REVIEW].status = done, verdict = PASS"
+    - "a_module_current_round.yaml: review_history[round=3].verdict = PASS_CONFIRMED"
+    - "progress_live.md: 2026-04-15 00:30:00 — Downstream usability: USABLE (unchanged)"
+    - "progress_live.md: CP-BUILD and CP-RES may proceed without reservation"
 
 threads:
   - thread_id: CP-RES
     role: RES
-    current_gate: waiting_for_a_review_release
+    current_gate: phase3_0b_cp_research
     owner: OC
-    status: BLOCKED_WAIT_UPSTREAM
+    status: done
+    delivered_at: "2026-04-15T02:00:00+08:00"
+    delivered_artifacts:
+      - policy RFC (docs/algorithm1/handoff/cp_res_policy_rfc.md)
+      - interface assumptions doc (docs/algorithm1/handoff/cp_res_interface_assumptions.md)
+      - blocked items list (docs/algorithm1/handoff/cp_res_blocked_items.md)
+    note: >
+      Defined delta-action objective, training paradigm (metadata-prediction heads),
+      A-output consumption rules (stable: risk_score/trigger_label/delta_action_norm/
+      correction_mask/affected_region_prior), and CP-AH-1~4 acceptance hypotheses.
+      delta_action_v0_draft contract drafted. No blocking items for CP-RES.
+      CP-BUILD悬挂决策 BD-1~5 已识别。CP-AH-4 BLOCKED_WAIT_REMOTE 等待远程验证。
     baseline_anchor:
       vlm: qwen25_authoritative
-      a_output_contract: pending_a_review
+      a_output_contract: v0.9.3_frozen
       schema: p1_shared_builder_v1
     allowed_paths:
       - docs/algorithm1/handoff/**
@@ -49,20 +74,39 @@ threads:
       - policy RFC
       - interface assumptions doc
       - blocked items list
-    blocking_conditions:
-      - A-REVIEW has not released downstream usability verdict
+    blocking_conditions: []
     handoff_to:
       - CP-BUILD
       - CP-REVIEW
 
   - thread_id: CP-BUILD
     role: BUILD
-    current_gate: waiting_for_a_review_release
+    current_gate: phase3_0b_cp_build
     owner: OC
-    status: BLOCKED_WAIT_UPSTREAM
+    status: BLOCKED_WAIT_REMOTE
+    started_at: "2026-04-15T14:00:00+08:00"
+    note: >
+      One-Step Corrective Flow 本地实现完成。CorrectiveFlowHead 新建并集成至
+      QwenPI (forward/predict_action) + train_starvla (hook_specs)。
+      BD-1~5 决策已落地。本地静态验证全部 PASS。
+      等待远程 500-step smoke train 验证 corrective_flow_loss 有限性和非退化。
+    delivered_artifacts_local:
+      - "starVLA/model/framework/corrective_flow_head.py (新建)"
+      - "starVLA/model/framework/QwenPI.py (修改: init/forward/predict_action)"
+      - "starVLA/training/train_starvla.py (修改: hook_specs)"
+      - "starVLA/config/training/starvla_train_pi_qwen25_corrective_flow.yaml (新建)"
+      - "config diff: framework.corrective_flow + trainer.optional_loss_hooks.corrective_flow"
+      - "local smoke evidence: syntax/AST/lint/YAML all PASS"
+      - "changed-file handoff note: progress_live.md 2026-04-15T14:00:00"
+    bd_decisions:
+      BD-1: "region-gated additive: a_corrected = a_base + sigmoid(region) * velocity"
+      BD-2: "no independent corrective action head in v0"
+      BD-3: "lite mode (per CP-RES suggestion)"
+      BD-4: "do not consume dynamic_embedding (v0 simplification)"
+      BD-5: "do not consume region_target_15 (use chunk_len-sized region)"
     baseline_anchor:
       vlm: qwen25_authoritative
-      a_output_contract: pending_a_review
+      a_output_contract: v0.9.3_frozen
       schema: p1_shared_builder_v1
     allowed_paths:
       - starVLA/model/framework/**
@@ -75,17 +119,17 @@ threads:
       - local smoke evidence
       - changed-file handoff note
     blocking_conditions:
-      - A-REVIEW has not released downstream usability verdict
-      - upstream A-output contract unresolved
       - remote evidence required for acceptance
     handoff_to:
       - CP-REVIEW
 
   - thread_id: CP-REVIEW
     role: REVIEW
-    current_gate: waiting_for_a_review_release
+    current_gate: upstream_unblocked_pending_cp_build
     owner: OC
-    status: BLOCKED_WAIT_UPSTREAM
+    status: ACTIVE
+    verdict: UPSTREAM_UNBLOCKED
+    reviewed_at: "2026-04-15T01:00:00+08:00"
     baseline_anchor:
       vlm: qwen25_authoritative
       acceptance_rule: evidence_only
@@ -100,12 +144,11 @@ threads:
       - artifact checklist
       - pass/fail verdict
     blocking_conditions:
-      - A-REVIEW has not released downstream usability verdict
-      - missing upstream artifacts
+      - CP-BUILD has not yet delivered artifacts for review
     handoff_to: []
 
 downstream_rule:
   cp_build_start_condition: >
-    CP-BUILD must stay BLOCKED_WAIT_UPSTREAM until A-REVIEW explicitly states
-    usable_for_downstream = yes|conditional in the A-module manifest or
-    progress ledger. No verbal approvals accepted.
+    SATISFIED. A-REVIEW has explicitly stated downstream_usability=USABLE
+    in a_module_current_round.yaml (reviewed_at 2026-04-15T00:30:00+08:00).
+    CP-BUILD may proceed immediately.
