@@ -8089,3 +8089,130 @@ git commit -m "[CP-BUILD+REVIEW] corrective flow debug metrics, bf16 fix, Quick-
   - T-B3: 运行 mode=fusion VDPM smoke test (验证 in-loop 推理路径在远程可用)
   - T-B4: 使用 fusion mode 重新评估 CP-AH-4 (替换 lite mode)
   - T-B5: 更新训练配置 YAML, 将 a_module.mode 从 "lite" 切换为 "fusion"
+
+## [2026-04-16 T-B1] A-BUILD: merge VDPM integration branch into mainline
+
+- Owner: A-BUILD
+- Status: DONE
+- Objective:
+  - Merge codex/merge-vdpm-integration-20260416 back into mainline codex/tmp-20260402-p0-audit-infra.
+- Changes:
+  - git merge --no-ff, commit d0d9376
+  - 12 files changed, +3245 -51 lines
+  - Clean merge, no conflicts
+- Key files verified on mainline after merge:
+  - a_fusion_heads.py: 218 lines
+  - a_module_interface.py: 1249 lines (VDPM inloop + fusion + standalone + lite)
+  - QwenPI.py: 742 lines (merged B skeleton + A P0/P1/CP)
+  - a_module_trainable_branch_audit.py: 112 lines
+- New files introduced:
+  - starVLA/model/framework/a_fusion_heads.py (CrossAttentionFusionAHead)
+  - tools/a_module_trainable_branch_audit.py
+  - docs/algorithm1/handoff/vdpm_inloop_a_module_from_zero_guide.md
+  - docs/starvla_retrofit/handoff/rfc_p4_1_vdpm_a_module.md
+- Next: T-B2 sync to remote training server
+
+## [2026-04-16 T-B2] A-BUILD: sync merged code to remote training server
+
+- Owner: A-BUILD
+- Status: DONE
+- Objective:
+  - Sync VDPM/FASA merged code to remote training server and verify compilation.
+- Changes:
+  - scp'd 8 files to /2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/
+  - Framework files: a_fusion_heads.py (218L), a_module_interface.py (1249L), QwenPI.py (742L)
+  - Tools: a_module_trainable_branch_audit.py (112L), build_fasa_dataset.py, fasa_dataset_audit.py, build_fasa_a_outputs.py
+  - Training: train_starvla.py
+- Evidence:
+  - py_compile PASS for all 4 key framework/tool files on remote
+  - Line counts match local repo exactly
+- Next: T-B3 fusion mode VDPM smoke test
+
+## [2026-04-16 T-B3] A-BUILD: fusion mode VDPM smoke test (50 step)
+
+- Owner: A-BUILD
+- Status: **PASS**
+- RUN_ID: tb3_fusion_smoke_50step_20260416_112333
+- Objective:
+  - Verify fusion mode (VDPM in-loop + CrossAttentionFusionAHead) runs end-to-end without error.
+- Configuration:
+  - a_module.mode: fusion
+  - num_processes: 1 (single GPU)
+  - per_device_batch_size: 2
+  - max_train_steps: 50
+  - VDPM worker: .venv_vdpm_infer python, cuda:0
+  - Training env: .venv_vdpm_fullflow
+- Evidence:
+  - Exit code: 0
+  - All 50 steps completed in ~10 min
+  - VDPM worker subprocess launched successfully (PID 3423430)
+  - inloop_success = 400, inloop_fail = 0, success_ratio = 1.0
+  - debug/a_module_mode_fusion = 1.0 (confirmed fusion path)
+  - debug/inloop_runtime_model_enabled = 1.0 (confirmed VDPM runtime model)
+  - debug/vdpm_embedding_coverage = 1.0 (100% coverage)
+  - debug/fusion_region_logits_contract15_present = 1.0 (15-bin region compatible)
+  - vdpm_infer_latency_ms_p95: 246513ms → 586ms (first call model load, then steady state)
+- Loss summary (all finite, no NaN/Inf):
+  - loss/a_module: 2.20 → 2.39 (step 1 → 50)
+  - loss/risk: 0.27 → 0.32
+  - loss/trigger: 0.71 → 0.71
+  - loss/embed: 1.22 → 1.37
+  - loss/corrective: 0.17 → 0.22
+  - loss/consist: 0.0 (expected, P1 hinge margin)
+  - loss/region: 0.0 (expected, trigger-filtered)
+- Next: T-B4 fusion mode 500-step AH-4 re-evaluation
+
+## [2026-04-16] A-RES: VDPM 前向时间分析 — 缓存机制与在线推理延迟
+
+- Owner: OC
+- Status: ANALYSIS
+- Objective:
+  - 评估 VDPM in-loop 推理的真实延迟开销，区分训练时缓存场景与部署在线推理场景。
+
+### 缓存机制说明
+
+`a_module_interface.py` 中的 `_inloop_runtime_model_cache` 是一个内存字典，key 为
+`(dataset_name, trajectory_id, sample_step)`，value 为 VDPM 推理输出的 `a_outputs` payload。
+
+训练时同一条数据会被多次采样（多 epoch / dataloader 重复），对同一 key 只需调用 VDPM
+一次，后续命中缓存直接返回，不再触发真实推理。
+
+**实证（T-B3 和 Phase2.5b-029 两次实验）：**
+
+| 实验 | inloop_calls | vdpm_model_calls_total | 缓存命中率 |
+|---|---|---|---|
+| Phase2.5b-029（500步，4GPU）| 8000 | 21 | 99.7% |
+| T-B3 fusion smoke（50步，1GPU）| 400 | 400 | ~0%（新配置，缓存未预热）|
+
+Phase2.5b-029 中 8000 次 inloop 调用只有 21 次真正触发 VDPM 推理，其余均命中缓存。
+这解释了为何带 VDPM 的训练（~25 min）与不带 VDPM 的 CP 训练（26m24s, ~3.17s/step）
+速度相近——缓存将真实推理次数压低了 380 倍。
+
+### 真实推理延迟（来自 T-B3 smoke 实验）
+
+- 首次调用（含模型加载）：~246513ms（约 4 分钟，只发生一次）
+- 稳态调用（模型已加载，只做前向）：**p95 ≈ 586ms / call**
+- VDPM worker 运行在独立子进程（`.venv_vdpm_infer`），通过 stdin/stdout JSON 通信，
+  延迟含序列化 + IPC 开销
+
+### 在线推理场景的风险
+
+训练时缓存帮不上部署期的忙——部署时每帧都是新的观测，不存在重复 key，
+每次控制循环都需要真正调用 VDPM 前向。
+
+**关键约束：**
+- RFC 目标控制频率：10–50 Hz（即 20–100ms/帧）
+- T-B3 测量的稳态延迟：~586ms/call
+- **当前 VDPM 推理延迟约为 RFC 目标上限的 6–29 倍**
+
+### 结论与待确认事项
+
+1. 训练阶段：缓存机制有效，VDPM 开销可接受
+2. 在线部署阶段：586ms/call 是潜在瓶颈，需在以下方向择一：
+   - 异步并行流水线（VDPM 和 planner 并行运行，VDPM 用上一帧结果）
+   - 降低 VDPM 推理频率（不必每帧都更新，例如每 N 步调用一次）
+   - 优化 VDPM 模型本身（量化、蒸馏、更小架构）
+   - 将 VDPM worker 迁移为 in-process 调用（消除 IPC 开销）
+3. 需要在远程服务器上做专项 benchmark，确认模型本身的纯前向时间（剥离 IPC 开销后）
+
+- Risk: 在线推理延迟约束未达 RFC 目标（586ms >> 20-100ms），需在 T-B4 之后评估是否阻塞部署计划

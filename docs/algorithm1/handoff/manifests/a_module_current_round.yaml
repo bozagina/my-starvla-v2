@@ -6,8 +6,9 @@ summary: >
   v0.9.3 pseudo-label pipeline upgrade complete. VDPM/FASA branch (987c504) merged
   into mainline (000ef49) — a_module_interface.py now supports lite/standalone/VDPM-inloop/fusion
   four modes. QwenPI.py integrates VDPM fusion head + P0/P1 loss + CP corrective flow.
-  AH-1~AH-4 PASS. AH-5 LIBERO eval blocked on corrective policy + fusion mode validation.
-  Next: A-BUILD sync to remote, fusion smoke test, CP-AH-4 re-eval with fusion mode.
+  AH-1~AH-4 PASS. T-B1~T-B3 DONE: merge, remote sync, fusion smoke 50step PASS.
+  VDPM 稳态推理延迟 p95 ≈ 586ms（训练缓存命中率高，在线部署需另行评估延迟方案）。
+  Next: T-B4 fusion mode CP-AH-4 re-eval (500 steps).
 
 global_anchors:
   repo_scope: qwen_only
@@ -224,12 +225,17 @@ threads:
         - lite
         - standalone
         - fusion (VDPM in-loop)
+      completed_build_tasks:
+        - "T-B1: DONE — merge integration branch back to mainline (d0d9376)"
+        - "T-B2: DONE — sync merged code to remote training server (py_compile PASS)"
+        - "T-B3: DONE — mode=fusion VDPM smoke 50step PASS (tb3_fusion_smoke_50step_20260416_112333)"
       pending_build_tasks:
-        - "T-B1: merge integration branch back to mainline"
-        - "T-B2: sync merged code to remote training server"
-        - "T-B3: run mode=fusion VDPM smoke test on remote"
-        - "T-B4: re-evaluate CP-AH-4 with fusion mode"
+        - "T-B4: re-evaluate CP-AH-4 with fusion mode (500 steps)"
         - "T-B5: update training config YAML (a_module.mode: lite → fusion)"
+      vdpm_latency_note: >
+        T-B3 smoke 实测：VDPM 稳态推理延迟 p95 ≈ 586ms/call（独立子进程，含 IPC）。
+        训练时缓存命中率高（Phase2.5b-029: 99.7%），训练开销可控。
+        在线部署时无缓存，586ms >> RFC 目标 20-100ms，需评估异步流水线或降频策略。
     baseline_anchor:
       vlm: qwen25_authoritative
       acceptance_rule: evidence_only
