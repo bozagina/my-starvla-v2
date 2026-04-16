@@ -62,6 +62,7 @@ def _cfg_enabled(cfg_obj, key: str, default: bool = False) -> bool:
 
 from starVLA.model.framework.base_framework import baseframework
 from starVLA.model.framework.a_module_interface import build_a_module_interface
+from starVLA.model.framework.a_fusion_heads import CrossAttentionFusionAHead
 from starVLA.model.framework.optional_loss_utils import build_optional_hook_targets
 from starVLA.model.modules.vlm import get_vlm_model
 from starVLA.model.modules.action_model.LayerwiseFM_ActionHeader import get_action_model, LayerwiseFlowmatchingActionHead
@@ -138,8 +139,10 @@ class Qwen_PI(baseframework):
             nn.SiLU(),
             nn.Linear(aux_hidden_dim, self.chunk_len),
         )
+        a_module_root_cfg = _cfg_get(getattr(self.config, "framework", None), "a_module", None)
+        self.a_module_mode = str(_cfg_get(a_module_root_cfg, "mode", "lite")).strip().lower()
         a_module_cfg = _cfg_get(
-            _cfg_get(getattr(self.config, "framework", None), "a_module", None),
+            a_module_root_cfg,
             "standalone",
             None,
         )
@@ -153,6 +156,18 @@ class Qwen_PI(baseframework):
             nn.SiLU(),
             nn.Linear(aux_hidden_dim, self.a_embed_dim),
         )
+        self.a_fusion_head = None
+        if self.a_module_mode == "fusion":
+            fusion_cfg = _cfg_get(a_module_root_cfg, "fusion", None)
+            self.a_fusion_head = CrossAttentionFusionAHead(
+                pooled_hidden_dim=llm_hidden_size,
+                chunk_len=self.chunk_len,
+                vdpm_embedding_dim=self.a_embed_dim,
+                model_dim=int(_cfg_get(fusion_cfg, "model_dim", 256) or 256),
+                num_heads=int(_cfg_get(fusion_cfg, "num_heads", 8) or 8),
+                decoder_layers=int(_cfg_get(fusion_cfg, "decoder_layers", 2) or 2),
+                dropout=float(_cfg_get(fusion_cfg, "dropout", 0.0) or 0.0),
+            )
         self.a_module_interface = build_a_module_interface(
             config=self.config,
             chunk_len=self.chunk_len,
@@ -207,15 +222,53 @@ class Qwen_PI(baseframework):
         pooled_hidden = pooled_hidden.to(dtype=action_loss.dtype)
         output_dict: dict[str, torch.Tensor] = {}
         debug_metrics: dict[str, float] = {}
-        a_predictions = self.a_module_interface.predict(
-            pooled_hidden=pooled_hidden,
-            examples=examples,
-            action_loss=action_loss,
-            chunk_len=self.chunk_len,
-        )
-        debug_metrics.update(getattr(a_predictions, "debug_metrics", {}))
-        # Standalone in-loop mode may attach runtime `a_outputs` during predict().
-        # Build targets afterwards so embed supervision can consume that payload.
+
+        risk_pred: torch.Tensor
+        trigger_logit: torch.Tensor
+        delta_pred: torch.Tensor
+        region_logits: torch.Tensor
+        embed_pred: torch.Tensor | None = None
+
+        if self.a_module_mode == "fusion":
+            if self.a_fusion_head is None:
+                raise RuntimeError("framework.a_module.mode=fusion but a_fusion_head is not initialized")
+            runtime_batch, runtime_debug = self.a_module_interface.collect_runtime_batch(
+                examples=examples,
+                device=action_loss.device,
+                dtype=action_loss.dtype,
+                require_embedding=True,
+            )
+            debug_metrics.update(runtime_debug)
+            fusion_outputs = self.a_fusion_head(
+                pooled_hidden=pooled_hidden,
+                runtime_batch=runtime_batch,
+            )
+            risk_pred = fusion_outputs["risk_pred"]
+            trigger_logit = fusion_outputs["trigger_logit"]
+            delta_pred = fusion_outputs["delta_pred"]
+            region_logits = fusion_outputs["region_logits_train"]
+            embed_pred = fusion_outputs["dynamic_embedding_pred"]
+            debug_metrics["debug/a_module_mode_fusion"] = 1.0
+            debug_metrics["debug/a_module_mode_vdpm_frozen_head"] = 1.0
+            debug_metrics["debug/vdpm_fallback_to_lite"] = 0.0
+            debug_metrics["debug/fusion_region_logits_contract15_present"] = float(
+                fusion_outputs["region_logits_contract15"].shape[-1] == 15
+            )
+        else:
+            a_predictions = self.a_module_interface.predict(
+                pooled_hidden=pooled_hidden,
+                examples=examples,
+                action_loss=action_loss,
+                chunk_len=self.chunk_len,
+            )
+            debug_metrics.update(getattr(a_predictions, "debug_metrics", {}))
+            risk_pred = a_predictions.risk_pred
+            trigger_logit = a_predictions.trigger_logit
+            delta_pred = a_predictions.delta_pred
+            region_logits = a_predictions.region_logits
+            if getattr(a_predictions, "dynamic_embedding_pred", None) is not None:
+                embed_pred = a_predictions.dynamic_embedding_pred
+
         targets = build_optional_hook_targets(
             examples,
             chunk_len=self.chunk_len,
@@ -232,9 +285,8 @@ class Qwen_PI(baseframework):
             embed_weight = float(_cfg_get(a_cfg, "embed_weight", 1.0))
             embed_enabled = _cfg_enabled(a_cfg, "embed_enabled", default=True)
 
-            risk_pred = a_predictions.risk_pred
-            trigger_logit = a_predictions.trigger_logit
-            embed_pred = self.a_embed_head(pooled_hidden)
+            if embed_pred is None:
+                embed_pred = self.a_embed_head(pooled_hidden)
             risk_loss_component = action_loss.new_zeros(())
             trigger_loss_component = action_loss.new_zeros(())
             embed_loss_component = action_loss.new_zeros(())
@@ -272,7 +324,7 @@ class Qwen_PI(baseframework):
             # P1 (v0.9.2): trigger-region consistency regularization
             consist_weight = float(_cfg_get(a_cfg, "consist_weight", 0.1))
             consist_loss = action_loss.new_zeros(())
-            region_logits_for_consist = a_predictions.region_logits
+            region_logits_for_consist = region_logits
             if consist_weight > 0 and region_logits_for_consist is not None:
                 trigger_prob = torch.sigmoid(trigger_logit)
                 region_prob_mean = torch.sigmoid(region_logits_for_consist).mean(dim=-1)
@@ -303,8 +355,6 @@ class Qwen_PI(baseframework):
             correction_mask_weight = float(_cfg_get(corrective_cfg, "correction_mask_weight", 1.0))
             region_prior_weight = float(_cfg_get(corrective_cfg, "region_prior_weight", 0.5))
 
-            delta_pred = a_predictions.delta_pred
-            region_logits = a_predictions.region_logits
             delta_component = action_loss.new_zeros(())
             region_component = action_loss.new_zeros(())
             delta_target_count = 0

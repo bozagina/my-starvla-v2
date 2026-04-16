@@ -240,7 +240,7 @@ docs/algorithm1/handoff/a_module_design.md
 docs/algorithm1/handoff/a_module_newcomer_guide.md
 docs/algorithm1/handoff/a_module_results_and_innovation.md
 docs/algorithm1/handoff/a_module_training_guide.md
-docs/algorithm1/handoff/vdpm_inloop_a_module_from_zero_guide.md
+# docs/algorithm1/handoff/vdpm_inloop_a_module_from_zero_guide.md  # un-ignored: VDPM merged into mainline
 
 docs/starvla_retrofit/handoff/a_module_task_flow_v2.md
 docs/starvla_retrofit/handoff/build_v2_bootstrap_context_20260409.md
@@ -253,7 +253,7 @@ docs/starvla_retrofit/handoff/p4_1_qwen25_longrun_authoritative_baseline.md
 
 docs/starvla_retrofit/handoff/prompts/
 docs/starvla_retrofit/handoff/rfc_p4_1_literature_matrix.md
-docs/starvla_retrofit/handoff/rfc_p4_1_vdpm_a_module.md
+# docs/starvla_retrofit/handoff/rfc_p4_1_vdpm_a_module.md  # un-ignored: VDPM merged into mainline
 
 docs/starvla_retrofit/skills/starvla-thread-harness/
 docs/starvla_retrofit/skills/a-module-research/

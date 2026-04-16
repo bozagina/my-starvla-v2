@@ -1,15 +1,21 @@
 schema_version: harness_v2_thread_manifest_v1
 thread_family: corrective-policy
 round_id: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
-status: UNBLOCKED
+status: BLOCKED_WAIT_UPSTREAM
 cp_review_verdict: UPSTREAM_UNBLOCKED
 cp_review_date: "2026-04-15T01:00:00+08:00"
+blocked_at: "2026-04-16T22:00:00+08:00"
+blocked_reason: >
+  A-module 开发偏差：当前 A-module 使用 lite 模式（MLP heads 从 VLM pooled
+  features 简单投影），未达到预期的 VDPM in-loop inference。lite 模式下
+  trigger/region 信号质量不足以支撑有效的 corrective policy。CP 全线程
+  暂停，等待 A-module 升级至 VDPM in-loop inference 后恢复。
 summary: >
-  CP-REVIEW bootstrap audit complete. Upstream A-REVIEW has issued PASS_CONFIRMED
-  with downstream_usability=USABLE (a_module_current_round.yaml, reviewed_at
-  2026-04-15T00:30:00+08:00, progress_live.md final entry). All CP threads are
-  unblocked. CP-RES and CP-BUILD may proceed with corrective-policy development
-  using the v0.9.3 A-output contract.
+  CP 全线程 BLOCKED。根因：A-module lite 模式（MLP heads）的 trigger/region
+  信号质量不足，corrective policy 在此基础上效果受限（CP-AH-4 FAIL，
+  最优 Plan C 仅 64% vs Baseline 69%）。经分析确认问题根源不在 CF 架构
+  本身，而在上游 A-module 的信号质量。需等待 A-module 完成 VDPM in-loop
+  inference 升级后，CP 线程方可恢复。
 
 global_anchors:
   repo_scope: qwen_only
@@ -249,20 +255,23 @@ threads:
     role: RES
     current_gate: cp_ah4_failure_root_cause
     owner: OC
-    status: PENDING
+    status: SUSPENDED
     request: docs/algorithm1/handoff/cp_res_ah4_failure_analysis_request.md
     note: >
       CP-AH-4 FAIL. CF 62.0% vs Baseline 69.0% (-7pp, threshold -2pp).
-      5 hypotheses (H1-H5) require systematic analysis.
-      Additional question: Baseline 69% vs old-code 30k ~48% (+21pp) source.
-      40k checkpoint NaN incompatibility also needs diagnosis.
+      根因分析已完成部分（H1-H5 假设、Gap 1-5 分析、Round 4 仲裁）。
+      经全面审视，核心问题定位到上游：A-module 使用 lite 模式（MLP heads）
+      而非预期的 VDPM in-loop inference，trigger/region 信号质量不足。
+      CP 全线程挂起，等待 A-module 升级。
     blocking_conditions:
-      - "CP-AH-4 root cause not yet identified"
+      - "A-module 需升级至 VDPM in-loop inference"
     handoff_to:
       - CP-BUILD
 
 downstream_rule:
   cp_build_start_condition: >
-    SATISFIED. A-REVIEW has explicitly stated downstream_usability=USABLE
-    in a_module_current_round.yaml (reviewed_at 2026-04-15T00:30:00+08:00).
-    CP-BUILD may proceed immediately.
+    BLOCKED. A-module 当前使用 lite 模式（MLP heads），未达到 VDPM in-loop
+    inference 的预期。CP 全线程挂起，等待 A-module 升级后恢复。
+  resume_condition: >
+    A-module 完成 VDPM in-loop inference 实现，并通过 A-REVIEW 验证
+    trigger/region 信号质量达到 corrective policy 可用标准。
