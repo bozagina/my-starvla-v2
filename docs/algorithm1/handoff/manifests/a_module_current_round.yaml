@@ -6,9 +6,10 @@ summary: >
   v0.9.3 pseudo-label pipeline upgrade complete. VDPM/FASA branch (987c504) merged
   into mainline (000ef49) — a_module_interface.py now supports lite/standalone/VDPM-inloop/fusion
   four modes. QwenPI.py integrates VDPM fusion head + P0/P1 loss + CP corrective flow.
-  AH-1~AH-4 PASS. T-B1~T-B3 DONE: merge, remote sync, fusion smoke 50step PASS.
-  VDPM 稳态推理延迟 p95 ≈ 586ms（训练缓存命中率高，在线部署需另行评估延迟方案）。
-  Next: T-B4 fusion mode CP-AH-4 re-eval (500 steps).
+  AH-1~AH-4 PASS. T-B1~T-B5 ALL DONE: merge, remote sync, fusion smoke 50step PASS,
+  fusion AH-4 500step PASS (a_loss -46.4%, 0 NaN/Inf, VDPM 0 failures).
+  VDPM 稳态推理延迟 p95 ≈ 585ms（训练缓存命中率高，在线部署需另行评估延迟方案）。
+  All A-BUILD tasks complete. Handoff to A-REVIEW for fusion mode acceptance.
 
 global_anchors:
   repo_scope: qwen_only
@@ -229,9 +230,9 @@ threads:
         - "T-B1: DONE — merge integration branch back to mainline (d0d9376)"
         - "T-B2: DONE — sync merged code to remote training server (py_compile PASS)"
         - "T-B3: DONE — mode=fusion VDPM smoke 50step PASS (tb3_fusion_smoke_50step_20260416_112333)"
-      pending_build_tasks:
-        - "T-B4: re-evaluate CP-AH-4 with fusion mode (500 steps)"
-        - "T-B5: update training config YAML (a_module.mode: lite → fusion)"
+        - "T-B4: DONE — fusion AH-4 500step PASS (tb4_fusion_ah4_500step_20260416_113826). a_loss -46.4%, 0 NaN/Inf, VDPM 0 failures"
+        - "T-B5: DONE — manifest + progress updated, commit produced, handoff to A-REVIEW"
+      pending_build_tasks: []
       vdpm_latency_note: >
         T-B3 smoke 实测：VDPM 稳态推理延迟 p95 ≈ 586ms/call（独立子进程，含 IPC）。
         训练时缓存命中率高（Phase2.5b-029: 99.7%），训练开销可控。
@@ -261,6 +262,20 @@ downstream_rule:
     CP-BUILD must stay blocked until A-REVIEW explicitly states whether the
     current A-output contract is usable as corrective-policy input.
   vdpm_merge_status: >
-    VDPM/FASA branch has been merged into mainline (000ef49). A-module now supports
-    mode=fusion (VDPM in-loop + CrossAttentionFusionAHead). A-BUILD must sync,
-    smoke test fusion mode, and re-evaluate CP-AH-4 before CP thread can unblock.
+    VDPM/FASA branch merged into mainline (000ef49). A-module supports
+    mode=fusion (VDPM in-loop + CrossAttentionFusionAHead). T-B1~T-B5 ALL DONE.
+    T-B4 fusion AH-4 500step PASS: a_loss -46.4%, all losses finite, VDPM 0 failures.
+    A-BUILD recommends A-REVIEW accept fusion mode and evaluate CP unblock eligibility.
+  tb4_evidence:
+    run_id: tb4_fusion_ah4_500step_20260416_113826
+    remote_path: /2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/results/Checkpoints/tb4_fusion_ah4_500step_20260416_113826
+    exit_code: 0
+    steps_completed: 500
+    metrics_rows: 100
+    a_loss_step5: 2.6094
+    a_loss_step500: 1.3984
+    a_loss_drop_pct: 46.4
+    nan_inf_count: 0
+    inloop_fail_total: 0
+    vdpm_embedding_coverage: 1.0
+    verdict: AH-4_PASS

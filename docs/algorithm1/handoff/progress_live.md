@@ -11,18 +11,18 @@ Every model/operator must update this file after meaningful actions.
 2. Use local time (Asia/Shanghai), ISO format: `YYYY-MM-DD HH:MM:SS +08:00`.
 3. One entry per meaningful action batch (code edit, experiment run, diagnosis, decision).
 4. Any major modification must be logged in this file before handing off:
-   - algorithm changes
-   - training config changes
-   - scripts/tooling behavior changes
-   - experiment conclusions that alter next-step strategy
+  - algorithm changes
+  - training config changes
+  - scripts/tooling behavior changes
+  - experiment conclusions that alter next-step strategy
 5. Each entry must include:
-   - Task ID / short title
-   - Hypothesis or objective
-   - What was changed
-   - Evidence (command, logs, metrics, or file diff summary)
-   - Decision taken
-   - Next step
-   - Suggested commit message (`[EXP_ID] one-line intent`)
+  - Task ID / short title
+  - Hypothesis or objective
+  - What was changed
+  - Evidence (command, logs, metrics, or file diff summary)
+  - Decision taken
+  - Next step
+  - Suggested commit message (`[EXP_ID] one-line intent`)
 6. If blocked, explicitly mark `BLOCKED` or `BLOCKED_WAIT_REMOTE` and state blocker + owner.
 7. Never hide failures. Failed experiments are first-class records.
 8. If one `EXP_ID` has multiple entries, the latest entry status is authoritative for triage.
@@ -197,7 +197,7 @@ Copy this block for each new entry:
 - Decision:
   - Adopt wrapper script as default operator entrypoint for new conversations.
 - Risks/Notes:
-  - `prompt` extraction depends on first ` ```text ` block in bootstrap doc; keep doc structure stable.
+  - `prompt` extraction depends on first ````text` block in bootstrap doc; keep doc structure stable.
 - Next step:
   - Use this SOP in all future sessions and keep EXP_ID continuity per naming convention.
 
@@ -332,7 +332,7 @@ Copy this block for each new entry:
   - Existing in-progress entries created before this rule may still miss commit-message field; keep backward compatibility.
 - Next step:
   - For next actual training experiment, validate end-to-end mapping:
-    EXP_ID -> run_id -> fetched `run_identity.txt` -> analysis update.
+  EXP_ID -> run_id -> fetched `run_identity.txt` -> analysis update.
 - Commit message:
   - `[ALG1-INFRA-20260301-005-OC] Add remote-training boundary SOP and run-identity traceability`
 
@@ -461,7 +461,7 @@ Copy this block for each new entry:
       - `feedback_mask_contrast_active=1`, `feedback_mask_contrast_term` ~ `0.03466`, `weighted` ~ `0.00104`.
       - `delta_action_alpha` ramp reached target `0.1`.
       - `delta_action_effective_norm_mean` ~ `0.0103`.
-      - `delta_action_clip_saturation_frac` high (~`0.61` avg last 20, latest `0.79`).
+      - `delta_action_clip_saturation_frac` high (~`0.61`avg last 20, latest`0.79`).
       - `debug/health/has_nonfinite=0`, `debug/action_health/has_nonfinite=0`.
     - Runtime path evidence:
       - log repeatedly reports `vision tower path is empty or None, using SigLIP vision tower instead`.
@@ -499,7 +499,7 @@ Copy this block for each new entry:
   - Key outputs/metrics:
     - shell syntax check passed.
     - simulated latest selection correctly resolved:
-      `1229_libero4in1_MapAnythingLlava3DPI_s42_20260301_111316__ALG1-MASK-20260301-002-OC`.
+    `1229_libero4in1_MapAnythingLlava3DPI_s42_20260301_111316__ALG1-MASK-20260301-002-OC`.
     - simulated `RUN_ID` prefix match selected suffixed run dir correctly.
 - Decision:
   - Keep this matching logic as default for EXP-suffixed run directory naming convention.
@@ -522,7 +522,7 @@ Copy this block for each new entry:
   - Code/Config summary:
     - No code patch.
     - Replaced analysis basis with:
-      `/Users/bazinga/code/my-starvla/_remote_runs/1229_libero4in1_MapAnythingLlava3DPI_s42_20260301_111316__ALG1-MASK-20260301-002-OC/*`.
+    `/Users/bazinga/code/my-starvla/_remote_runs/1229_libero4in1_MapAnythingLlava3DPI_s42_20260301_111316__ALG1-MASK-20260301-002-OC/*`.
 - Evidence:
   - Commands:
     - `cat .../run_identity.txt`
@@ -568,7 +568,7 @@ Copy this block for each new entry:
   - Code/Config summary:
     - No code patch.
     - Re-analysis target run:
-      `/Users/bazinga/code/my-starvla/_remote_runs/1229_libero4in1_MapAnythingLlava3DPI_s42_20260301_113908__ALG1-MASK-20260301-002-OC`.
+    `/Users/bazinga/code/my-starvla/_remote_runs/1229_libero4in1_MapAnythingLlava3DPI_s42_20260301_113908__ALG1-MASK-20260301-002-OC`.
 - Evidence:
   - Commands:
     - `cat .../run_identity.txt`
@@ -627,7 +627,7 @@ Copy this block for each new entry:
   - Commands:
     - `python ...` parse `/Users/bazinga/code/my-starvla/_remote_runs/1229_libero4in1_MapAnythingLlava3DPI_s42_20260301_113908__ALG1-MASK-20260301-002-OC/metrics.jsonl`
     - aligned metric comparison against prior similarity run:
-      `/Users/bazinga/code/my-starvla/_remote_runs/1229_libero4in1_MapAnythingLlava3DPI_s42_20260301_111316__ALG1-MASK-20260301-002-OC/metrics.jsonl`
+    `/Users/bazinga/code/my-starvla/_remote_runs/1229_libero4in1_MapAnythingLlava3DPI_s42_20260301_111316__ALG1-MASK-20260301-002-OC/metrics.jsonl`
     - `rg -n "SigLIP|vision tower path is empty|nonfinite" .../train.log`
   - Key outputs/metrics:
     - Directed path still confirmed active:
@@ -1014,8 +1014,8 @@ Copy this block for each new entry:
       - `soft_mask_entropy`: `6.19372` vs `6.23669` (uniform `ln(512)=6.23832`)
       - `action_dit_loss`: `1.13749` vs `1.14703` (no regression in early matched window)
     - Relative-to-uniform perspective (`N=512`):
-      - topk uplift above uniform improved by ~`5.60x` (`0.05178` vs `0.00924`)
-      - entropy gap to uniform improved by ~`27.37x` (`0.04460` vs `0.00163`)
+      - topk uplift above uniform improved by ~`5.60x `(`0.05178`vs`0.00924`)
+      - entropy gap to uniform improved by ~`27.37x `(`0.04460`vs`0.00163`)
     - Teacher branch:
       - active from logging step `99` onward (`teacher_step=100`), i.e. one-step offset vs contrast step counter.
       - stronger mismatch signal: `teacher_kl` increased (`0.165` vs `0.090`), `teacher_alpha_cos` decreased (`0.845` vs `0.919`) in matched early window.
@@ -1270,7 +1270,7 @@ Copy this block for each new entry:
   - Key outputs/metrics:
     - EXP_ID generated: `ALG1-INFRA-20260302-001-OC`.
     - Work report artifact generated at:
-      `/Users/bazinga/code/my-starvla/docs/algorithm1/handoff/ALG1-INFRA-20260302-001-OC__report.md`.
+    `/Users/bazinga/code/my-starvla/docs/algorithm1/handoff/ALG1-INFRA-20260302-001-OC__report.md`.
 - Decision:
   - Use this report file as the current external/internal status briefing baseline.
 - Risks/Notes:
@@ -1781,10 +1781,10 @@ Copy this block for each new entry:
   - `eval_libero` and `run_policy_server` can be pointed to different checkpoints if CKPT is not strictly unified; currently no handshake guard.
 - Next step:
   - Implement P0 eval hardening patch set:
-    1) add explicit server/client run-id consistency check,
-    2) add rollout-mode switch (`full_chunk` vs `receding_horizon`) with required Path-A compatibility guard,
-    3) add eval preset profiles (deterministic + debug-safe),
-    4) add held-out offline eval dataloader path in trainer to separate train-proxy from rollout KPI.
+    1. add explicit server/client run-id consistency check,
+    2. add rollout-mode switch (`full_chunk` vs `receding_horizon`) with required Path-A compatibility guard,
+    3. add eval preset profiles (deterministic + debug-safe),
+    4. add held-out offline eval dataloader path in trainer to separate train-proxy from rollout KPI.
 - Commit message:
   - `[ALG1-INFRA-20260302-003-OC] audit eval stack and isolate train-vs-rollout mismatch risks`
 
@@ -1818,8 +1818,8 @@ Copy this block for each new entry:
   - Path-A residual evidence still requires `request_policy_debug_info=True` so server debug fields are returned.
 - Next step:
   - Run A/B on same checkpoint:
-    1) `eval_control_mode=chunk`
-    2) `eval_control_mode=receding_horizon`, `request_policy_debug_info=true`
+    1. `eval_control_mode=chunk`
+    2. `eval_control_mode=receding_horizon`, `request_policy_debug_info=true`
     and compare `residual_mode_used_token_delta_geo`, success rate, and latency.
 - Commit message:
   - `[ALG1-INFRA-20260302-003-OC] add receding-horizon eval mode and path-a residual debug metrics`
@@ -2735,9 +2735,9 @@ Copy this block for each new entry:
   - Some remote local changes are environment-specific (NCCL/network/path) and not portable.
 - Next step:
   - Open a focused import task to migrate only:
-    1) dataloader stats-cache/action_mode hardening,
-    2) QWen2_5 configurable `attn_implementation`,
-    3) `qwen2.5` path matching in VLM resolver.
+    1. dataloader stats-cache/action_mode hardening,
+    2. QWen2_5 configurable `attn_implementation`,
+    3. `qwen2.5` path matching in VLM resolver.
 - Commit message:
   - `[ALG1-INFRA-20260403-005-OC] audit remote zzq_0317 starVLA and define selective import strategy`
 
@@ -3343,7 +3343,7 @@ Copy this block for each new entry:
   - Key outputs/metrics:
     - `CONTRACT_CASE_OFF {}` (enabled=false is no-op; default path unchanged)
     - `CONTRACT_CASE_ON {'debug/shared_builder_contract_checked': 1.0, 'debug/shared_builder_contract_is_shared': 1.0}`
-    - `CONTRACT_CASE_BAD expected_fail ValueError Shared-builder contract check failed: `action` D mismatch: got 7, expected 8.`
+    - `CONTRACT_CASE_BAD expected_fail ValueError Shared-builder contract check failed:` action `D mismatch: got 7, expected 8.`
 - Decision:
   - Trainer insertion behaves as designed: backward-compatible by default, strict and readable when enabled.
 - Risks/Notes:
@@ -3582,7 +3582,7 @@ Copy this block for each new entry:
     - `/Users/bazinga/code/my-starvla-v2/docs/algorithm1/handoff/progress_live.md`
   - Code/Config summary:
     - Added `_resolve_vlm_shape_cfg(global_config)` helper to resolve VLM dims/layer count with `framework.qwenvl` first, then legacy `framework.mapanything_llava3d` fallback.
-    - Replaced direct reads of `global_config.framework.mapanything_llava3d.{num_vl_layers,vl_hidden_dim}` in `LayerwiseFlowmatchingActionHead.__init__` with resolved values.
+    - Replaced direct reads of `global_config.framework.mapanything_llava3d.{num_vl_layers,vl_hidden_dim}` in `LayerwiseFlowmatchingActionHead.__init`__ with resolved values.
     - Extended init log to include selected `vl_scope` for runtime traceability.
 - Evidence:
   - Commands:
@@ -5395,7 +5395,6 @@ Copy this block for each new entry:
 - Commit message:
   - `[ALG1-FASA-20260409-010-OC] add Phase1.3 sidecar A-module training-check package`
 
-
 ## [2026-04-09 20:21:39 +08:00] ALG1-FASA-20260409-011-OC Phase1.4 sidecar-only long-run stability check (2k/5k) on myserver
 
 - Owner: B
@@ -5698,7 +5697,6 @@ Copy this block for each new entry:
 - Commit message:
   - `[ALG1-FASA-20260410-014-OC] block Phase2.1b on myserver connectivity before non-zero data probe`
 
-
 ## [2026-04-10 12:00:40 +08:00] ALG1-FASA-20260410-015-OC Phase2.1b recovery retry on myserver connectivity
 
 - Owner: B
@@ -5802,7 +5800,6 @@ Copy this block for each new entry:
   - At next retry time, rerun Day0 gate and the same 8-attempt connectivity loop; proceed to data precheck only when SSH恢复.
 - Commit message:
   - `[ALG1-FASA-20260410-015-OC] keep Phase2.1b blocked after 8x myserver retry failures (round-2)`
-
 
 ## [2026-04-10 12:52:58 +08:00] ALG1-FASA-20260410-015-OC Phase2.1b recovery retry (round-3, connectivity restored)
 
@@ -7030,14 +7027,14 @@ Copy this block for each new entry:
   - **OBS-1 [INFO]**: `region_target_15` 字段（15-bin 重采样）由 A-module 生成但不参与训练。CP 侧需在 policy RFC 中声明是否计划消费该字段，避免歧义。
   - **OBS-2 [INFO]**: `optional_loss_utils._coerce_vector` 将 v0.9.3 的 4 元素 correction_mask/region_prior 零填充至 chunk_len=8。CP-BUILD 设计 delta-action 策略时需评估此零填充对下游 correction 信号密度的影响（当前有效监督率 50%）。
 - Artifact checklist:
-  - [x] `a_module_current_round.yaml` 存在且含 A-REVIEW 裁决
-  - [x] A-REVIEW `downstream_usability = USABLE`，有明确字段证据
-  - [x] `progress_live.md` 存在对应 A-REVIEW Round 3 条目
-  - [x] v0.9.3 FASA 数据集已在服务器构建（`results/PseudoLabels/p3_0b_outcome_v093/`，2000行）
-  - [x] AH-4 v0.9.3 训练证据存在（`results/Checkpoints/ah4_v093_500step_20260414_115012/`）
-  - [x] `cp_current_round.yaml` 已更新反映解封状态
-  - [ ] CP-BUILD 交付物（待 CP-BUILD 产出后复核）
-  - [ ] AH-5 LIBERO eval（阻塞于 CP 交付，待远程验证）
+  - `a_module_current_round.yaml` 存在且含 A-REVIEW 裁决
+  - A-REVIEW `downstream_usability = USABLE`，有明确字段证据
+  - `progress_live.md` 存在对应 A-REVIEW Round 3 条目
+  - v0.9.3 FASA 数据集已在服务器构建（`results/PseudoLabels/p3_0b_outcome_v093/`，2000行）
+  - AH-4 v0.9.3 训练证据存在（`results/Checkpoints/ah4_v093_500step_20260414_115012/`）
+  - `cp_current_round.yaml` 已更新反映解封状态
+  - CP-BUILD 交付物（待 CP-BUILD 产出后复核）
+  - AH-5 LIBERO eval（阻塞于 CP 交付，待远程验证）
 - 结论:
   - 上游 A-REVIEW 已正式发布 `PASS_CONFIRMED` + `downstream_usability=USABLE`，文件证据充分。
   - `cp_current_round.yaml` 的阻塞状态系遗留字段未同步，非真实阻塞。已修正。
@@ -7124,7 +7121,7 @@ Copy this block for each new entry:
     - forward(): velocity_gt = a_gt - a_prev; base_loss + region_weighted_loss
     - predict(): region-gated one-step correction
   - **修改** `starVLA/model/framework/QwenPI.py`
-    - `__init__`: 条件实例化 CorrectiveFlowHead（读取 framework.corrective_flow 配置）
+    - `__init`__: 条件实例化 CorrectiveFlowHead（读取 framework.corrective_flow 配置）
     - `forward()`: 在 optional_hook_outputs 后计算 corrective_flow_loss，输出至 output_dict
     - `predict_action()`: 推理时若 trigger_prob > threshold 则执行一步修正
   - **修改** `starVLA/training/train_starvla.py`
@@ -7139,7 +7136,7 @@ Copy this block for each new entry:
   - `cross_attention_dit.py`: 未修改，仅 import DiT ✓
 - 证据是什么:
   - 语法检查: 3 文件 AST parse 全部 PASS
-  - 结构检查: CorrectiveFlowHead 含 __init__/forward/predict/_encode_and_attend 全部 PASS
+  - 结构检查: CorrectiveFlowHead 含 **init**/forward/predict/_encode_and_attend 全部 PASS
   - QwenPI 引用检查: corrective_flow_enabled / corrective_flow_head / corrective_flow_loss 全部存在
   - train_starvla hook_specs 检查: corrective_flow_loss / loss/corrective_flow 全部存在
   - YAML 配置检查: 新配置解析正确，原配置向后兼容（无 corrective_flow 字段）
@@ -7211,7 +7208,7 @@ Copy this block for each new entry:
   - `optional_loss_utils.py`: 未修改 ✓
   - `a_module_interface.py`: 未修改 ✓
 - 交付物:
-  - config diff: `framework.corrective_flow.*` + `trainer.optional_loss_hooks.corrective_flow.*`
+  - config diff: `framework.corrective_flow.`* + `trainer.optional_loss_hooks.corrective_flow.`*
   - smoke evidence: `cp_smoke_500step_20260415_042824/metrics.jsonl` (100 entries, all PASS)
   - changed-file handoff note: 本条目
   - RES 分析文档: `cp_res_ah1_analysis_request.md` + `cp_res_ah1_analysis_response.md`
@@ -7320,23 +7317,28 @@ git commit -m "[CP-BUILD+REVIEW] corrective flow debug metrics, bf16 fix, Quick-
 - Status: **FAIL** (CF 62.0% < Baseline 69.0% - 2pp = 67.0%)
 
 ### Training Phase
+
 - **Baseline**: 30k ckpt → +3000 steps (A-module only, no CF) → `cp_ah4_baseline_3k_20260415_081523`
 - **CF Model**: 30k ckpt → +3000 steps (A-module + CorrectiveFlowHead) → `cp_ah4_cf_3k_20260415_104250`
 - Both trained with `starvla_train_pi_from30k.yaml` (matching 30k ckpt architecture)
 
 ### LIBERO Results (libero_goal, 20 trials/task, seed=7)
 
-| Model | Total | T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Baseline | **69.0%** | 60 | 100 | 95 | 35 | 100 | 45 | 50 | 100 | 100 | 5 |
-| CF | **62.0%** | 85 | 90 | 55 | 30 | 100 | 15 | 60 | 90 | 90 | 5 |
-| Delta | **-7.0pp** | +25 | -10 | -40 | -5 | 0 | -30 | +10 | -10 | -10 | 0 |
+
+| Model    | Total      | T0  | T1  | T2  | T3  | T4  | T5  | T6  | T7  | T8  | T9  |
+| -------- | ---------- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Baseline | **69.0%**  | 60  | 100 | 95  | 35  | 100 | 45  | 50  | 100 | 100 | 5   |
+| CF       | **62.0%**  | 85  | 90  | 55  | 30  | 100 | 15  | 60  | 90  | 90  | 5   |
+| Delta    | **-7.0pp** | +25 | -10 | -40 | -5  | 0   | -30 | +10 | -10 | -10 | 0   |
+
 
 ### 40k Ablation (old code checkpoint)
+
 - 0.0% success — incompatible with new code (NaN/Inf actions, 30 missing state_dict keys)
 - Previous eval with old code: ~48% (24/50) on libero_goal
 
 ### Analysis
+
 - CF improves hardest tasks (T0 +25pp, T6 +10pp)
 - CF degrades mid-difficulty tasks significantly (T2 -40pp, T5 -30pp)
 - Easy tasks slightly regress (T1/T7/T8: 100% → 90%)
@@ -7352,40 +7354,48 @@ git commit -m "[CP-BUILD+REVIEW] corrective flow debug metrics, bf16 fix, Quick-
 - Reference: `docs/algorithm1/handoff/cp_res_ah4_failure_analysis_response.md`
 
 ### CP-RES Identified Root Causes
+
 1. **[CRITICAL] H4: 推理路径设计缺陷** — `CorrectiveFlowHead.predict()` 训练用 `a_prev`(GT前序chunk)，推理传入 `a_base`(当前base policy预测)，语义不匹配
 2. **H5: region_gate 无下界** — sigmoid(region_logits) 无阈值，低相关区域仍有修正
 3. **训练损害**: CF联合训练对base model权重产生负面干扰
 
 ### Plan A: 推理消融 (CF inference disabled, trigger_threshold=1.1)
 
-| Model | Total | T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Plan A | **62.0%** | 80 | 100 | 50 | 25 | 95 | 25 | 65 | 90 | 85 | 5 |
+
+| Model  | Total     | T0  | T1  | T2  | T3  | T4  | T5  | T6  | T7  | T8  | T9  |
+| ------ | --------- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Plan A | **62.0%** | 80  | 100 | 50  | 25  | 95  | 25  | 65  | 90  | 85  | 5   |
+
 
 **结论**: Plan A = 62% = 原始CF → **CF训练本身损害base model -7pp，是主因**
 
 ### Plan C: 推理路径修复 (_cf_prev_chunk + region_gate threshold)
 
 修复内容：
+
 1. `QwenPI.predict_action()`: 用 `_cf_prev_chunk` 替代 `pred_actions` 作为CF head输入
 2. `corrective_flow_head.predict()`: `region_gate = clamp(sigmoid - 0.3, min=0)` 阈值化
 3. 服务端 `reset` RPC 已实现
 4. **未完成**: 客户端 `model2libero_interface.py` 未发送 reset 信号 → 跨episode状态泄漏
 
-| Model | Total | T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Plan C | **64.0%** | 95 | 95 | 50 | 25 | 100 | 30 | 55 | 90 | 85 | 15 |
+
+| Model  | Total     | T0  | T1  | T2  | T3  | T4  | T5  | T6  | T7  | T8  | T9  |
+| ------ | --------- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Plan C | **64.0%** | 95  | 95  | 50  | 25  | 100 | 30  | 55  | 90  | 85  | 15  |
+
 
 **结论**: Plan C = 64%, 比原始CF +2pp，修复有效但不足以弥补训练损害(-7pp)
 
 ### Root Cause Decomposition
 
-| Factor | Impact | Status |
-|---|---|---|
+
+| Factor              | Impact        | Status                |
+| ------------------- | ------------- | --------------------- |
 | CF训练 → base model损害 | **-7pp** (主因) | 需训练层面修复 (loss权重/梯度隔离) |
-| 推理: a_base语义不匹配 | ~-2pp | ✅ Plan C已修复 |
-| 推理: region_gate无阈值 | minor | ✅ Plan C已修复 |
-| 推理: 跨episode状态泄漏 | est. -1~2pp | ❌ 客户端reset未实现 |
+| 推理: a_base语义不匹配     | ~-2pp         | ✅ Plan C已修复           |
+| 推理: region_gate无阈值  | minor         | ✅ Plan C已修复           |
+| 推理: 跨episode状态泄漏    | est. -1~2pp   | ❌ 客户端reset未实现         |
+
 
 ### CP-AH-4 最终判定: **FAIL** (Plan C 64.0% < 67.0% threshold)
 
@@ -8179,10 +8189,12 @@ git commit -m "[CP-BUILD+REVIEW] corrective flow debug metrics, bf16 fix, Quick-
 
 **实证（T-B3 和 Phase2.5b-029 两次实验）：**
 
-| 实验 | inloop_calls | vdpm_model_calls_total | 缓存命中率 |
-|---|---|---|---|
-| Phase2.5b-029（500步，4GPU）| 8000 | 21 | 99.7% |
-| T-B3 fusion smoke（50步，1GPU）| 400 | 400 | ~0%（新配置，缓存未预热）|
+
+| 实验                          | inloop_calls | vdpm_model_calls_total | 缓存命中率          |
+| --------------------------- | ------------ | ---------------------- | -------------- |
+| Phase2.5b-029（500步，4GPU）    | 8000         | 21                     | 99.7%          |
+| T-B3 fusion smoke（50步，1GPU） | 400          | 400                    | ~0%（新配置，缓存未预热） |
+
 
 Phase2.5b-029 中 8000 次 inloop 调用只有 21 次真正触发 VDPM 推理，其余均命中缓存。
 这解释了为何带 VDPM 的训练（~25 min）与不带 VDPM 的 CP 训练（26m24s, ~3.17s/step）
@@ -8193,7 +8205,7 @@ Phase2.5b-029 中 8000 次 inloop 调用只有 21 次真正触发 VDPM 推理，
 - 首次调用（含模型加载）：~246513ms（约 4 分钟，只发生一次）
 - 稳态调用（模型已加载，只做前向）：**p95 ≈ 586ms / call**
 - VDPM worker 运行在独立子进程（`.venv_vdpm_infer`），通过 stdin/stdout JSON 通信，
-  延迟含序列化 + IPC 开销
+延迟含序列化 + IPC 开销
 
 ### 在线推理场景的风险
 
@@ -8201,6 +8213,7 @@ Phase2.5b-029 中 8000 次 inloop 调用只有 21 次真正触发 VDPM 推理，
 每次控制循环都需要真正调用 VDPM 前向。
 
 **关键约束：**
+
 - RFC 目标控制频率：10–50 Hz（即 20–100ms/帧）
 - T-B3 测量的稳态延迟：~586ms/call
 - **当前 VDPM 推理延迟约为 RFC 目标上限的 6–29 倍**
@@ -8209,10 +8222,238 @@ Phase2.5b-029 中 8000 次 inloop 调用只有 21 次真正触发 VDPM 推理，
 
 1. 训练阶段：缓存机制有效，VDPM 开销可接受
 2. 在线部署阶段：586ms/call 是潜在瓶颈，需在以下方向择一：
-   - 异步并行流水线（VDPM 和 planner 并行运行，VDPM 用上一帧结果）
-   - 降低 VDPM 推理频率（不必每帧都更新，例如每 N 步调用一次）
-   - 优化 VDPM 模型本身（量化、蒸馏、更小架构）
-   - 将 VDPM worker 迁移为 in-process 调用（消除 IPC 开销）
+  - 异步并行流水线（VDPM 和 planner 并行运行，VDPM 用上一帧结果）
+  - 降低 VDPM 推理频率（不必每帧都更新，例如每 N 步调用一次）
+  - 优化 VDPM 模型本身（量化、蒸馏、更小架构）
+  - 将 VDPM worker 迁移为 in-process 调用（消除 IPC 开销）
 3. 需要在远程服务器上做专项 benchmark，确认模型本身的纯前向时间（剥离 IPC 开销后）
 
 - Risk: 在线推理延迟约束未达 RFC 目标（586ms >> 20-100ms），需在 T-B4 之后评估是否阻塞部署计划
+
+## [2026-04-16 22:30:00 +08:00] A-RES: 融合模式后研究复核 — 标签语义、契约、CP 解阻评估
+
+- Owner: OC
+- Thread: A-RES
+- Round: A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE
+- Status: ANALYSIS COMPLETE
+
+### Problem
+
+A-RES 在本轮（phase3_0b_outcome_label_upgrade）已于 2026-04-14 交付 spec v0.9.3 并被 A-REVIEW PASS_CONFIRMED。
+此后发生重大变化：VDPM/FASA 分支合并至主线（000ef49），A-module 从 lite 模式升级为 fusion 模式。
+本次复核目的：确认融合模式对标签语义、冻结锚点、输出契约的影响，并评估 CP 线程解阻条件。
+
+### Frozen Anchors 状态
+
+
+| 锚点                           | spec v0.9.3 声明                                                                                  | 合并后实际状态                                                         | 判定             |
+| ---------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | -------------- |
+| VLM: qwen25_authoritative    | 不切换基线模型                                                                                         | 未变                                                              | ✓ 保持           |
+| 七字段契约                        | risk_pred, trigger_logit, delta_pred, region_logits[15], dynamic_embedding[16], version, source | FusionAModuleInterface 继承 StandaloneAModuleInterface，七字段输出不变    | ✓ 保持           |
+| schema: p1_shared_builder_v1 | 数据格式不变                                                                                          | 未变                                                              | ✓ 保持           |
+| optional_loss_utils.py       | 全文件冻结                                                                                           | git diff empty（A-REVIEW Round 3 已确认）                            | ✓ 保持           |
+| a_module_interface.py        | spec 内冻结（outcome label scope）                                                                   | VDPM 合并修改（B 超集 1249 行），A-REVIEW Round 4 批准；非 outcome-label 范围改动 | ⚠ 范围外变更，已经审批通过 |
+| QwenPI.py 模型结构               | heads/forward 签名不变，loss 逻辑 carve-out 可改                                                         | 合并后 742 行（B 骨架 + A P0/P1/CP），结构不变                               | ✓ 保持           |
+
+
+### Candidate Decisions
+
+**CD-1: Outcome Labels v0.9.3 标签语义不受 fusion 模式影响**
+
+理由：伪标签由 `build_fasa_dataset.py::_compute_pseudo_labels_v3()` 基于轨迹状态偏差 $d_k$ 计算，
+完全独立于 A-module 推理模式（lite/standalone/fusion）。标签是数据驱动的，不依赖模型架构。
+已构建的 v0.9.3 FASA 训练数据集（p3_0b_outcome_v093/）不需要重新生成。
+
+**CD-2: 七字段输出契约在 fusion 模式下保持**
+
+证据：FusionAModuleInterface（L1155 of a_module_interface.py）继承 StandaloneAModuleInterface，
+`build_a_module_interface()` 工厂函数在 mode="fusion" 时返回 FusionAModuleInterface 实例，
+输出字段名和 tensor shape 与 lite 模式一致。T-B3 smoke 实证：
+`fusion_region_logits_contract15_present = 1.0`（15-bin region 兼容）。
+
+**CD-3: a_module_interface.py 冻结锚点需重新定义**
+
+spec v0.9.3 §4.3 声明 `a_module_interface.py` 全文件冻结——该声明的作用域是 outcome-label 升级。
+VDPM 合并属于 FASA Phase3.0A 独立分支作用域，经 A-REVIEW Round 4 批准。
+**建议**：将 a_module_interface.py 的冻结锚点更新为"合并后版本（1249 行，000ef49）为新基线，
+后续 outcome-label 相关改动仍然禁止修改此文件"。此变更需 A-REVIEW 确认。
+
+**CD-4: CP 解阻条件评估**
+
+CP manifest 的 resume_condition 要求：
+
+> "A-module 完成 VDPM in-loop inference 实现，并通过 A-REVIEW 验证 trigger/region 信号质量达到 corrective policy 可用标准"
+
+当前进度：
+
+- ✅ VDPM in-loop inference 已实现（FusionAModuleInterface + CrossAttentionFusionAHead）
+- ✅ A-REVIEW Round 4 确认合并完成（MERGE_COMPLETE）
+- ✅ T-B3 fusion smoke PASS（50 步，all losses finite）
+- ❌ T-B4 (fusion 500-step AH-4) 未完成 — **CP 解阻的硬性前提**
+- ❌ 尚未证明 fusion 模式的 trigger/region 信号质量优于 lite 模式
+
+**结论**：CP 线程当前仍应保持 BLOCKED_WAIT_UPSTREAM。解阻需要：
+
+1. T-B4 PASS（AH-4 全 loss finite + non-degenerate）
+2. 信号质量对比证据（fusion vs lite 的 trigger/region 分布差异）
+3. A-REVIEW 对 fusion 输出可用性的明确判定
+
+**CD-5: VDPM 在线推理延迟不阻塞当前 gate**
+
+T-B3 测量 VDPM 稳态推理 p95 ≈ 586ms（含 IPC），远超 RFC 目标 20-100ms。
+但 phase3_0b gate 的验收指标是训练侧（AH-1~5），不含在线推理延迟门限。
+训练时缓存机制有效（Phase2.5b-029 命中率 99.7%），训练开销可接受。
+**建议**：将在线推理延迟优化归入独立 gate（如 phase3_1_deployment_latency），不阻塞当前轮次。
+
+### Evidence Used
+
+
+| 证据                           | 来源                                      | 用途                  |
+| ---------------------------- | --------------------------------------- | ------------------- |
+| T-B3 fusion smoke 50step     | tb3_fusion_smoke_50step_20260416_112333 | 验证 fusion 路径端到端可用   |
+| A-REVIEW Round 4 merge audit | a_module_current_round.yaml             | 确认合并完整性             |
+| FusionAModuleInterface 代码    | a_module_interface.py L1155-1185        | 确认七字段契约保持           |
+| CP manifest blocked_reason   | cp_current_round.yaml                   | 确认 CP 解阻条件          |
+| Phase2.5b-029 cache stats    | progress_live.md                        | 训练缓存命中率 99.7%       |
+| VDPM latency analysis        | progress_live.md 2026-04-16             | 稳态 p95 ≈ 586ms      |
+| spec v0.9.3 §4.3             | phase3_0b_outcome_label_upgrade_spec.md | 冻结锚点声明              |
+| CP-AH-4 failure analysis     | cp_current_round.yaml Round 3-4         | lite 模式下 62% vs 69% |
+
+
+### Open Risks
+
+
+| #   | 风险                                                  | 严重度    | 状态                   |
+| --- | --------------------------------------------------- | ------ | -------------------- |
+| R12 | T-B4 (fusion 500-step AH-4) 未完成，无法确认 fusion 模式训练稳定性 | HIGH   | BLOCKED_WAIT_REMOTE  |
+| R13 | fusion vs lite 信号质量对比数据缺失，无法量化 fusion 对 CP 的改善幅度    | MEDIUM | 需 T-B4 完成后分析         |
+| R14 | a_module_interface.py 冻结锚点需重新定义（合并后 1249 行作为新基线）    | LOW    | 需 A-REVIEW 确认        |
+| R15 | VDPM 在线推理延迟 586ms >> RFC 20-100ms，部署需独立优化方案         | MEDIUM | 不阻塞当前 gate，建议独立 gate |
+| R1' | 状态偏差 f_k 可能遗漏语义失败（继承自 v0.9.3）                       | LOW    | 未变                   |
+| R4  | spec v0.9.2 P0/P1 改动已被 A-REVIEW 通过，降为关闭             | CLOSED | —                    |
+
+
+### Concrete Handoff
+
+**To A-BUILD:**
+
+1. **T-B4 执行（最高优先级）**：在远程服务器运行 fusion mode 500-step AH-4 re-evaluation。
+  - 配置：`a_module.mode: fusion`，其余与 T-B3 一致，step 数改为 500
+  - 验收标准：AH-4 全 loss（含 a_loss_consist）finite + non-degenerate
+  - 需同时收集：fusion 模式下 trigger/region 分布统计（用于 R13 评估）
+  - 执行命令参考：`tools/handoff/run_tb4_fusion_ah4_500step.sh`
+  - 预期成功标志：exit_code=0, metrics.jsonl 100+ entries, all losses finite
+2. **T-B5 配置更新**：若 T-B4 PASS，更新训练配置 YAML 将 `a_module.mode: lite` 切换为 `fusion`
+3. **信号质量对比**（optional but recommended）：输出 fusion vs lite 的 trigger 正样率、region 平均激活 bin 对比
+
+**To A-REVIEW:**
+
+1. 确认 CD-3：a_module_interface.py 冻结锚点更新为合并后版本（000ef49, 1249 行）
+2. 待 T-B4 完成后：审核 fusion 模式 500-step 证据，判定 A-output 在 fusion 模式下是否 USABLE_FOR_DOWNSTREAM
+3. 若 A-REVIEW 判定 USABLE，更新 cp_current_round.yaml 的 downstream_rule 以解阻 CP 线程
+
+## [2026-04-16 T-B4] A-BUILD: fusion mode AH-4 re-evaluation (500 step)
+
+- Owner: A-BUILD
+- Status: **PASS**
+- RUN_ID: tb4_fusion_ah4_500step_20260416_113826
+- Objective:
+  - Re-evaluate CP-AH-4 with fusion mode (VDPM in-loop + CrossAttentionFusionAHead), 500 steps.
+- Configuration:
+  - a_module.mode: fusion
+  - num_processes: 1 (single GPU)
+  - per_device_batch_size: 2
+  - gradient_accumulation_steps: 4
+  - max_train_steps: 500
+  - logging_frequency: 5 (100 rows in metrics.jsonl)
+  - save_interval: 100
+  - VDPM worker: .venv_vdpm_fullflow, cuda:0
+  - correction_dataset_jsonl: p3_0b_outcome_v093 (2000 records, v0.9.3)
+- Training:
+  - Duration: 53m53s (6.47s/step average)
+  - exit_code: 0
+  - Checkpoint saved at steps 100, 200, 300, 400, 500
+  - Final model saved
+
+### AH-4 Evaluation Results
+
+**Primary Criterion: a_loss drop >= 30%**
+
+| Metric | Step 5 | Step 500 | Change |
+|---|---|---|---|
+| loss/a_module | 2.6094 | 1.3984 | **-46.4%** ✅ |
+
+**Finiteness (MUST): All loss components finite across 100 rows**
+
+- NaN/Inf count: **0** (checked 100 rows × 10 loss keys = 1000 values) ✅
+
+**Non-degeneracy (MUST): No always-zero or constant loss**
+
+- All 10 loss keys have nonzero values at some point ✅
+
+**Loss Curve (sampled at key steps)**
+
+| step | a_module | risk | trigger | embed | consist | corrective | delta | region | action | total |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 5 | 2.6094 | 0.51953 | 1.0547 | 1.03125 | 0.000243 | 0.8828 | 0.11328 | 0.7695 | 1.1406 | 4.6250 |
+| 25 | 2.1562 | 0.40430 | 0.7305 | 1.01562 | 0.000132 | 0.9297 | 0.13672 | 0.7930 | 1.2812 | 4.3750 |
+| 50 | 1.7500 | 0.28516 | 0.4297 | 1.03125 | 0.000192 | 0.1895 | 0.18945 | 0.0000 | 1.0938 | 3.0312 |
+| 100 | 2.1406 | 0.42383 | 0.7383 | 0.96875 | 0.000267 | 0.9023 | 0.08350 | 0.8164 | 1.1875 | 4.2188 |
+| 200 | 0.6523 | 0.05542 | 0.3691 | 0.22656 | 0.000000 | 0.0334 | 0.03345 | 0.0000 | 1.1875 | 1.8750 |
+| 300 | 0.9102 | 0.01495 | 0.8164 | 0.07812 | 0.000000 | 0.3574 | 0.00259 | 0.3555 | 1.2188 | 2.4844 |
+| 400 | 0.9414 | 0.11670 | 0.7773 | 0.04663 | 0.000000 | 0.8125 | 0.22852 | 0.5859 | 1.2812 | 3.0312 |
+| 500 | 1.3984 | 0.04272 | 1.3438 | 0.00873 | 0.000000 | 0.3398 | 0.01257 | 0.3281 | 1.3359 | 3.0781 |
+
+**Component-level analysis**
+
+| Component | Step 5 | Step 500 | Trend | Status |
+|---|---|---|---|---|
+| loss/risk | 0.5195 | 0.0427 | -91.8% | ✅ Strong convergence |
+| loss/trigger | 1.0547 | 1.3438 | +27.4% | ⚠️ See note |
+| loss/embed | 1.0312 | 0.0087 | -99.2% | ✅ Strong convergence |
+| loss/consist | 0.0002 | 0.0000 | ~0 | ✅ Expected (P1 hinge margin) |
+| loss/delta | 0.1133 | 0.0126 | -88.9% | ✅ Strong convergence |
+| loss/region | 0.7695 | 0.3281 | -57.4% | ✅ Good convergence |
+| loss/action | 1.1406 | 1.3359 | +17.1% | ⚠️ See note |
+
+Notes on trigger/action trends:
+- loss/trigger oscillation with slight upward trend is consistent with prior AH-4 runs (trigger is a binary classification on highly imbalanced data — LIBERO has no failed episodes, so trigger-positive samples are rare)
+- loss/action slight increase is within normal variance for 500 steps with action_model learning_rate=1e-6 (very conservative); the primary objective of AH-4 is a_module loss convergence, not action optimization
+
+**VDPM Stability**
+
+| Metric | Value | Status |
+|---|---|---|
+| inloop_fail | 0 across all 500 steps | ✅ |
+| inloop_success | 40 → 4000 (cumulative) | ✅ |
+| vdpm_embedding_coverage | 1.0 (all rows) | ✅ |
+| a_module_mode_fusion | 1.0 (all rows) | ✅ |
+| VDPM latency p95 (steady) | 585ms | ✅ Consistent with T-B3 |
+
+**loss/consist detail**: 31/100 rows nonzero (range 0.000004 ~ 0.000553), activated sporadically as expected
+
+**loss/region detail**: 37/100 rows nonzero (range 0.14 ~ 0.82), trigger-filtered — region loss only computed when trigger=positive
+
+### AH-4 Verdict: **PASS**
+
+All acceptance criteria met:
+1. ✅ a_loss drop 46.4% >= 30% threshold
+2. ✅ All 1000 loss values finite (0 NaN/Inf)
+3. ✅ All loss components non-degenerate
+4. ✅ VDPM in-loop inference 100% stable (0 failures)
+5. ✅ Fusion mode confirmed active throughout
+
+### Artifacts
+
+| Artifact | Location (remote) | Size |
+|---|---|---|
+| config.yaml | $RUN_DIR/config.yaml | 3.3KB |
+| metrics.jsonl | $RUN_DIR/metrics.jsonl | 672KB, 100 rows |
+| summary.jsonl | $RUN_DIR/summary.jsonl | 75B, 5 entries |
+| train.log | $RUN_DIR/train.log | 2.5MB |
+| train.raw.log | $RUN_DIR/train.raw.log | (raw) |
+| checkpoints | $RUN_DIR/checkpoints/steps_{100,200,300,400,500} | — |
+| final_model | $RUN_DIR/final_model | — |
+
+Where `$RUN_DIR = /2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/results/Checkpoints/tb4_fusion_ah4_500step_20260416_113826`
+
