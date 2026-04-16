@@ -8457,3 +8457,32 @@ All acceptance criteria met:
 
 Where `$RUN_DIR = /2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/results/Checkpoints/tb4_fusion_ah4_500step_20260416_113826`
 
+## [2026-04-16 23:50:00 +08:00] A-REVIEW Round 5: T-B1~B5 验收 + Fusion Mode Acceptance
+
+- Owner: OC
+- Thread: A-REVIEW
+- Status: **PASS**
+- Scope: 审查 A-BUILD/A-RES 在合并后产生的 3 个 commit (d0d9376, 374fa89, 566db62)
+- Commit 审查:
+  - d0d9376 [A-BUILD T-B1]: merge integration branch → mainline, --no-ff, 12 files +3245/-51. **PASS**
+  - 374fa89 [A-RES]: VDPM 延迟分析 (缓存 99.7%, 稳态 p95 ≈ 586ms) + handoff 脚本. **PASS**
+  - 566db62 [A-BUILD T-B4]: fusion AH-4 500step PASS (a_loss -46.4%, 0 NaN/Inf, VDPM 0 failures). **PASS**
+- T-B4 AH-4 证据审查:
+  - a_loss 下降: 46.4% (2.61→1.40), 远超 30% 门限. PASS
+  - 有限性: 0/1000 NaN/Inf. PASS
+  - 非退化性: 10 loss 组件均有非零值. PASS
+  - VDPM 稳定性: inloop_fail=0, embedding_coverage=1.0. PASS
+  - Fusion 路径: a_module_mode_fusion=1.0 全程确认. PASS
+- 功能完整性验证:
+  - 7/7 功能路径: lite, standalone, VDPM-inloop, fusion-head, CP, P0, P1 — 全部 PRESENT
+  - 9/9 py_compile PASS
+  - 0 冲突标记残留
+- Advisory findings:
+  - F-R5-1 [MEDIUM]: T-B5 远程训练配置 YAML 未确认更新 (a_module.mode: lite → fusion). 不阻塞当前 gate
+  - F-R5-2 [LOW]: progress_live.md 格式退化 (缩进/编号/空行变更). 不阻塞
+- 判定:
+  - **Fusion mode acceptance: ACCEPTED**
+  - **A-output downstream usability (fusion mode): USABLE**
+  - **CP 解阻条件: 已满足** — VDPM 实现合入 + T-B3 smoke PASS + T-B4 AH-4 PASS + A-REVIEW 确认
+  - **建议: CP manifest 从 BLOCKED_WAIT_UPSTREAM → READY_TO_RESUME**
+
