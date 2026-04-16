@@ -98,16 +98,22 @@ class baseframework(PreTrainedModel):
         try:
             FrameworkModel.load_state_dict(model_state_dict, strict=True)
         except RuntimeError as e:
-            # must keep all keys matched
             common_keys = model_keys.intersection(checkpoint_keys)
             missing_keys = model_keys - common_keys
             unexpected_keys = checkpoint_keys - common_keys
-            if missing_keys:
-                logger.warning(f"Missing keys in state_dict: {missing_keys}")
-            if unexpected_keys:
-                logger.warning(f"Unexpected keys in state_dict: {unexpected_keys}")
-
-            raise e
+            if missing_keys and not unexpected_keys:
+                logger.warning(
+                    "Checkpoint missing %d key(s) (newly added heads); "
+                    "loading with strict=False. Missing: %s",
+                    len(missing_keys), missing_keys,
+                )
+                FrameworkModel.load_state_dict(model_state_dict, strict=False)
+            else:
+                if missing_keys:
+                    logger.warning(f"Missing keys in state_dict: {missing_keys}")
+                if unexpected_keys:
+                    logger.warning(f"Unexpected keys in state_dict: {unexpected_keys}")
+                raise e
 
         # **ensure model is on GPU**
         FrameworkModel = FrameworkModel

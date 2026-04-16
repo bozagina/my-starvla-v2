@@ -7162,3 +7162,292 @@ Copy this block for each new entry:
   3. 查看日志: `bash tools/tail_latest_trainlog.sh`
   4. 拉取结果: `bash tools/fetch_latest_run_files.sh`
   5. 本地分析 metrics.jsonl 中 loss/corrective_flow 趋势
+
+## [2026-04-15 20:55:00 +08:00] CP-BUILD / CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM: 远程 Smoke Train 完成 — CP-AH-1~3 PASS
+
+- Owner: OC
+- Thread: CP-BUILD
+- Round: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+- Gate: phase3_0b_cp_build
+- Status: DONE_PENDING_REVIEW
+- Remote run: `cp_smoke_500step_20260415_042824`
+  - 仓库: `/2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA`
+  - 脚本: `tools/handoff/run_cp_smoke_500step.sh`
+  - 配置: `starvla_train_pi.yaml` + CLI corrective_flow 覆盖
+  - DeepSpeed: ZeRO-2, bf16, 4 GPU
+  - 500 步, batch=4×4 GPU×4 accum=64, eval_interval=500
+  - 训练时长: 26m24s, ~3.17s/step
+  - 退出码: 0（含 eval）
+  - metrics.jsonl: 100 条记录
+  - mse_score (eval): 0.070034
+- CP-AH 验收结果:
+  - **CP-AH-1 (original): PASS**
+    - `loss/region` = 0 次数: 38/100（P0 gate 正常工作）
+    - `debug/corrective_loss_region_trigger_filtered_count`: avg=6.2
+  - **CP-AH-1-ext (diagnostic): PASS**
+    - CorrectiveFlowHead 隐式 P0 有效
+    - `loss/corrective_flow_region`: 前半段 0.0768 → 后半段 0.0368（↓52%）
+    - RES 分析: 方案 B 采纳，保持 loss 逻辑不变 + debug metrics 暴露
+    - 文档: `cp_res_ah1_analysis_request.md` / `cp_res_ah1_analysis_response.md`
+  - **CP-AH-2: PASS**
+    - 全部 12 个 loss 分量 500 步内 finite、无 NaN/Inf
+    - `loss/corrective_flow`: [0.082, 0.377], avg=0.165
+    - `loss/corrective_flow_base`: [0.074, 0.301], avg=0.136
+    - `loss/corrective_flow_region`: [0.017, 0.155], avg=0.057
+    - `loss/total`: 12.19 → 1.60（↓87%）
+  - **CP-AH-3: PASS**
+    - `loss/consist`: 前半段 avg=0.000093 → 后半段 avg=0.000005（↓95%）
+    - 最后 5 步全部为 0.0
+  - **CP-AH-4: BLOCKED_WAIT_REMOTE** — 需后续 LIBERO eval
+- 关键 loss 轨迹:
+  - step 5:   action=1.094 cf_flow=0.266 a_module=10.94 total=12.19
+  - step 255: action=1.156 cf_flow=0.152 a_module=2.453  total=4.375
+  - step 500: action=1.125 cf_flow=0.110 a_module=0.344  total=1.602
+- 代码变更（本次新增，相对于首次实现）:
+  - `corrective_flow_head.py`: forward() 返回签名新增 debug dict (base_loss, region_loss)
+  - `QwenPI.py`: (1) debug dict 合入 output_dict; (2) predict_action eval bf16 修复——临时将 nn.Module 转 float32，支持 LiteAModuleInterface
+  - `train_starvla.py`: decomposed_metric_specs 新增 corrective_flow_base/region 两行
+- 冻结约束遵守:
+  - `optional_loss_utils.py`: 未修改 ✓
+  - `a_module_interface.py`: 未修改 ✓
+- 交付物:
+  - config diff: `framework.corrective_flow.*` + `trainer.optional_loss_hooks.corrective_flow.*`
+  - smoke evidence: `cp_smoke_500step_20260415_042824/metrics.jsonl` (100 entries, all PASS)
+  - changed-file handoff note: 本条目
+  - RES 分析文档: `cp_res_ah1_analysis_request.md` + `cp_res_ah1_analysis_response.md`
+- 下一步:
+  - CP-REVIEW: 审核本交付物
+  - CP-AH-4: 远程 LIBERO eval（独立任务）
+
+## [2026-04-15 21:30:00 +08:00] CP-REVIEW / CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM: One-Step Corrective Flow 审核 Round 1 — CONDITIONAL_PASS
+
+- Owner: OC
+- Thread: CP-REVIEW
+- Round: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+- Gate: phase3_0b_cp_build_review
+- Status: CONDITIONAL_PASS
+- Objective:
+  - 审核 CP-BUILD 的 One-Step Corrective Flow 全部交付物，验证 required_artifacts 和 CP-AH-1~4 验收假设
+- 修改了什么:
+  - 新建 `docs/algorithm1/handoff/cp_review_audit_report.md`（完整审核报告）
+  - 更新 `docs/algorithm1/handoff/manifests/cp_current_round.yaml`：CP-REVIEW 状态 ACTIVE → CONDITIONAL_PASS，记录 passed_items/blocking_items/report 路径
+- 证据是什么:
+  - 代码审查: `corrective_flow_head.py`、`QwenPI.py`、`train_starvla.py`、`run_cp_smoke_500step.sh`、参考 YAML 全部阅读
+  - 冻结验证: `git diff HEAD` 四个冻结文件均返回空
+  - 远程证据: `progress_live.md` 20:55 条目（run_id=cp_smoke_500step_20260415_042824，exit_code=0，100 entries）
+  - RES 分析: `cp_res_ah1_analysis_request.md` + `cp_res_ah1_analysis_response.md` 已验证
+- CP-AH 判定:
+  - **CP-AH-1: PASS** — loss/region=0 in 38/100 steps，P0 显式 mask 生效
+  - **CP-AH-1-ext: PASS（诊断级）** — corrective_flow_region 0.077→0.037（↓52%），RES 方案 B 验证合理
+  - **CP-AH-2: PASS** — 12 个 loss 分量 500 步全部 finite，loss/total 12.19→1.60（↓87%）
+  - **CP-AH-3: PASS** — loss/consist 9.3e-5→5e-6（↓95%），末 5 步全 0.0
+  - **CP-AH-4: 正确阻塞** — BUILD 未声明 PASS，BLOCKED_WAIT_REMOTE 符合执行纪律
+- Blocking Items（必须修复后才能进入下一 gate）:
+  - **B-1 [MEDIUM]**: `QwenPI.py` predict_action() — RuntimeError 时 ami 和 corrective_flow_head 留在 float32，需在 finally 块中恢复 dtype
+  - **B-2 [MEDIUM]**: `starvla_train_pi_qwen25_corrective_flow.yaml` 中 `a_module.mode: standalone` 与 smoke train 实际使用的 `lite` 不一致，需修正
+- Recommendations（非阻塞）:
+  - R-1: predict_action() 中 trigger_prob.unsqueeze(-1) 提前，保持与 forward() 对称
+  - R-2: CLI 脚本显式传入 noise_scale=0.05，消除对代码默认值的隐式依赖
+  - R-3: 将 metrics.jsonl 从服务器拉取存档至本地，便于未来 CP-REVIEW 直接抽检
+  - R-4: 监控 loss/corrective_flow_region，若持续 < 0.01 需评估零填充策略
+- 结论:
+  - CP-AH-1~3 全部 PASS，远程 500-step smoke 证据充分。冻结约束全部满足，无上游语义篡改。
+  - 两个 MEDIUM blocking items 不影响 smoke 结果，但须在 v0 正式部署前修复。
+- 下一步:
+  - CP-BUILD: 修复 B-1（dtype 恢复逻辑）和 B-2（参考配置模式），提交并通知 CP-REVIEW
+  - CP-REVIEW: 收到修复提交后执行 Quick-Pass 验证（仅检查 B-1/B-2）
+  - 远程: AH-5 LIBERO eval 独立推进，不阻塞 B-1/B-2 修复流程
+
+## [2026-04-15 22:00:00 +08:00] CP-REVIEW / CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM: Quick-Pass Round 2 — PASS
+
+- Owner: OC
+- Thread: CP-REVIEW
+- Round: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+- Gate: phase3_0b_cp_build_review
+- Status: **PASS**
+- Objective:
+  - 验证 CP-BUILD 对 Round 1 两个阻塞项（B-1 dtype 恢复、B-2 参考配置）的修复
+- 修改了什么:
+  - 更新 `cp_review_audit_report.md`：追加 Round 2 Quick-Pass 章节
+  - 更新 `cp_current_round.yaml`：CP-REVIEW status/verdict CONDITIONAL_PASS → PASS；blocking_conditions 清空；新增 round 2 记录
+- B-1 验证结果: **PASS**
+  - `orig_cf_dtype` 在 try 块之前捕获 ✓
+  - `orig_ami_dtype = None` 初始化在 try 外，赋值在 if 内 ✓
+  - `finally` 块无条件恢复 corrective_flow_head ✓
+  - `if ami_is_module and orig_ami_dtype is not None` 守卫正确 ✓
+- B-2 验证结果: **PASS**
+  - `a_module.mode: lite`（was standalone）✓
+  - standalone 子配置块已全部移除 ✓
+- 附加范围变更（均在允许路径，均与 RES 分析要求一致）:
+  - `corrective_flow_head.py`: forward() debug dict 返回值 ✓
+  - `QwenPI.py forward()`: debug dict 解包合入 output_dict ✓
+  - `train_starvla.py`: decomposed_metric_specs +2 条 ✓
+- OBS-QP-1 [INFO]: research_notes/phase3_0b_vae_accerl_analysis.md LaTeX 格式调整，非语义变更
+- 结论:
+  - 全部 Round 1 阻塞项已正确修复，无新 blocking 问题。CP-BUILD 交付物审核关闭。
+- 下一步:
+  - CP 线程族: v0 正式轮次准备（基于当前 PASS 状态）
+  - AH-5: 远程 LIBERO eval（独立任务，需 GPU 服务器）
+  - 建议: 将当前所有未提交改动统一 commit（见下方命令）
+
+---
+
+**建议提交命令（需在服务器确认后由用户执行）**:
+
+```bash
+git add starVLA/model/framework/corrective_flow_head.py \
+        starVLA/model/framework/QwenPI.py \
+        starVLA/training/train_starvla.py \
+        starVLA/config/training/starvla_train_pi_qwen25_corrective_flow.yaml \
+        docs/algorithm1/handoff/manifests/cp_current_round.yaml \
+        docs/algorithm1/handoff/manifests/a_module_current_round.yaml \
+        docs/algorithm1/handoff/progress_live.md \
+        docs/algorithm1/handoff/cp_review_audit_report.md \
+        docs/algorithm1/handoff/cp_review_quickpass_request.md \
+        docs/algorithm1/handoff/cp_review_audit_prompt.md \
+        docs/algorithm1/handoff/cp_res_ah1_analysis_request.md \
+        docs/algorithm1/handoff/cp_res_ah1_analysis_response.md \
+        tools/handoff/run_cp_smoke_500step.sh
+git commit -m "[CP-BUILD+REVIEW] corrective flow debug metrics, bf16 fix, Quick-Pass PASS"
+```
+
+---
+
+## [2026-04-15] CP-AH-4 LIBERO Evaluation — COMPLETED
+
+- Thread: CP-BUILD
+- Gate: CP-AH-4 (LIBERO eval)
+- Status: **FAIL** (CF 62.0% < Baseline 69.0% - 2pp = 67.0%)
+
+### Training Phase
+- **Baseline**: 30k ckpt → +3000 steps (A-module only, no CF) → `cp_ah4_baseline_3k_20260415_081523`
+- **CF Model**: 30k ckpt → +3000 steps (A-module + CorrectiveFlowHead) → `cp_ah4_cf_3k_20260415_104250`
+- Both trained with `starvla_train_pi_from30k.yaml` (matching 30k ckpt architecture)
+
+### LIBERO Results (libero_goal, 20 trials/task, seed=7)
+
+| Model | Total | T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Baseline | **69.0%** | 60 | 100 | 95 | 35 | 100 | 45 | 50 | 100 | 100 | 5 |
+| CF | **62.0%** | 85 | 90 | 55 | 30 | 100 | 15 | 60 | 90 | 90 | 5 |
+| Delta | **-7.0pp** | +25 | -10 | -40 | -5 | 0 | -30 | +10 | -10 | -10 | 0 |
+
+### 40k Ablation (old code checkpoint)
+- 0.0% success — incompatible with new code (NaN/Inf actions, 30 missing state_dict keys)
+- Previous eval with old code: ~48% (24/50) on libero_goal
+
+### Analysis
+- CF improves hardest tasks (T0 +25pp, T6 +10pp)
+- CF degrades mid-difficulty tasks significantly (T2 -40pp, T5 -30pp)
+- Easy tasks slightly regress (T1/T7/T8: 100% → 90%)
+- Root cause likely: insufficient 3000-step training for CorrectiveFlowHead convergence
+
+### Detailed report: `docs/algorithm1/handoff/cp_ah4_libero_results.md`
+
+---
+
+## [2026-04-16] CP-RES Root Cause Analysis & Ablation Experiments
+
+- Thread: CP-BUILD (executing CP-RES recommendations)
+- Reference: `docs/algorithm1/handoff/cp_res_ah4_failure_analysis_response.md`
+
+### CP-RES Identified Root Causes
+1. **[CRITICAL] H4: 推理路径设计缺陷** — `CorrectiveFlowHead.predict()` 训练用 `a_prev`(GT前序chunk)，推理传入 `a_base`(当前base policy预测)，语义不匹配
+2. **H5: region_gate 无下界** — sigmoid(region_logits) 无阈值，低相关区域仍有修正
+3. **训练损害**: CF联合训练对base model权重产生负面干扰
+
+### Plan A: 推理消融 (CF inference disabled, trigger_threshold=1.1)
+
+| Model | Total | T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Plan A | **62.0%** | 80 | 100 | 50 | 25 | 95 | 25 | 65 | 90 | 85 | 5 |
+
+**结论**: Plan A = 62% = 原始CF → **CF训练本身损害base model -7pp，是主因**
+
+### Plan C: 推理路径修复 (_cf_prev_chunk + region_gate threshold)
+
+修复内容：
+1. `QwenPI.predict_action()`: 用 `_cf_prev_chunk` 替代 `pred_actions` 作为CF head输入
+2. `corrective_flow_head.predict()`: `region_gate = clamp(sigmoid - 0.3, min=0)` 阈值化
+3. 服务端 `reset` RPC 已实现
+4. **未完成**: 客户端 `model2libero_interface.py` 未发送 reset 信号 → 跨episode状态泄漏
+
+| Model | Total | T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Plan C | **64.0%** | 95 | 95 | 50 | 25 | 100 | 30 | 55 | 90 | 85 | 15 |
+
+**结论**: Plan C = 64%, 比原始CF +2pp，修复有效但不足以弥补训练损害(-7pp)
+
+### Root Cause Decomposition
+
+| Factor | Impact | Status |
+|---|---|---|
+| CF训练 → base model损害 | **-7pp** (主因) | 需训练层面修复 (loss权重/梯度隔离) |
+| 推理: a_base语义不匹配 | ~-2pp | ✅ Plan C已修复 |
+| 推理: region_gate无阈值 | minor | ✅ Plan C已修复 |
+| 推理: 跨episode状态泄漏 | est. -1~2pp | ❌ 客户端reset未实现 |
+
+### CP-AH-4 最终判定: **FAIL** (Plan C 64.0% < 67.0% threshold)
+
+## [2026-04-16 12:00:00 +08:00] CP-REVIEW / CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM: Round 3 — CP-AH-4 Evidence Review & Plan C Code Audit — FAIL
+
+- Owner: OC
+- Thread: CP-REVIEW
+- Round: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+- Gate: phase3_0b_cp_build_review
+- Status: **BLOCKED**
+- Objective:
+  - 审查 CP-AH-4 LIBERO 评测结果、Plan A/C 消融证据、Plan C 推理修复代码变更
+- 修改了什么:
+  - 更新 `docs/algorithm1/handoff/cp_review_audit_report.md`：追加 Round 3 完整审查
+  - 更新 `docs/algorithm1/handoff/manifests/cp_current_round.yaml`：CP-REVIEW status PASS → BLOCKED, verdict PASS → FAIL_AH4，新增 Round 3 记录和 blocking_conditions
+- 证据是什么:
+  - CP-AH-4: Baseline 69.0%, CF 62.0% (-7pp), Plan A 62.0% (-7pp), Plan C 64.0% (-5pp)
+  - Plan A 消融确认：CF 训练本身导致 base model -7pp 退化
+  - Plan C 代码审查：4 处变更均在允许路径内，逻辑正确
+  - 冻结验证：`git diff HEAD` 四个冻结文件均返回空
+  - RES 根因分析：H4（a_prev/a_base 不匹配）和 H5（过修正）为主因，均已在 Plan C 部分修复
+- CP-AH 判定:
+  - **CP-AH-1: PASS**（Round 1 维持，远程证据充分）
+  - **CP-AH-2: PASS**（Round 1 维持）
+  - **CP-AH-3: PASS**（Round 1 维持）
+  - **CP-AH-4: FAIL** — 最佳变体 Plan C 64.0% < 阈值 67.0%。主因：CF 训练损害 base model -7pp
+- 关键发现:
+  - **F-R3-CRIT-1**: CF 联合训练导致 base model -7pp 退化（Plan A 证实），推理修复无法弥补
+  - **F-R3-HIGH-1**: Plan C 评测不完整——客户端 episode reset 未实现，`_cf_prev_chunk` 跨 episode 泄漏
+  - Plan C 代码变更本身 **PASS**（region_gate 阈值化、_cf_prev_chunk、dtype 恢复、server reset 均正确）
+- RES PAUSE 建议: **REVIEW 认可** — CF 方案有真实正信号（Plan C T0 95%, +35pp），失败原因是可修复的训练层问题，非方案缺陷
+- 结论:
+  - CP-AH-1~3 继续 PASS。CP-AH-4 FAIL。总体状态 BLOCKED：需训练层修复后重测
+  - 不建议 PIVOT：Plan C 证明推理修复有效（+2pp），T0/T9 改善显著，训练损害是独立可修复问题
+- 下一步:
+  - CP-RES: 设计训练层修复方案（gradient isolation / corrective_flow_scale 降低 / base model 冻结）
+  - CP-BUILD: (1) 补全客户端 episode reset；(2) 实施 RES 训练层修复后重跑 CP-AH-4
+  - CP-REVIEW: 等待新 CP-AH-4 结果执行 Round 4
+
+## [2026-04-16 14:00:00 +08:00] CP-REVIEW / CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM: Round 4 — CP-AH-4 训练损害根因仲裁 — INCONCLUSIVE
+
+- Owner: OC
+- Thread: CP-REVIEW（仲裁角色）
+- Round: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+- Gate: phase3_0b_cp_build_review
+- Request: CP-RES 自我否定请求 → CP-REVIEW 独立仲裁
+- Status: **INCONCLUSIVE_PENDING_VERIFICATION**
+- 修改了什么:
+  - 更新 `docs/algorithm1/handoff/cp_review_audit_report.md`：追加 Round 4 仲裁报告（梯度路径、统计分析、RES 报告交叉验证）
+  - 更新 `docs/algorithm1/handoff/manifests/cp_current_round.yaml`：Round 4 记录 + blocking 条件修正
+- 核心发现:
+  - **Q1（梯度路径）**: cf_loss 对 VLM **零梯度路径**。五个输入全部 detach。-7pp 主因为 RNG 分歧（CF forward 多消耗随机数 → flow-matching noise 不同）+ 微弱梯度裁剪交互（~2%）
+  - **Q2（公平性）**: 显式配置完全一致（seed/batch/LR/data 全部 match）。但 RNG 耦合是隐式混淆变量
+  - **Q3（统计）**: z=1.47, p=0.141, **-7pp 不显著**（α=0.05）。200 episodes power<0.50。需 ~720 episodes（36 trials/task）才有足够检验功效
+  - **Q4（报告一致性）**: 初始 RES 分析的 H4 首要根因判定已被 Plan A 证伪。Gap 分析更完整但未修正。两份均未识别 RNG 分歧机制
+- 仲裁结论:
+  - **-7pp 为 (b) 随机优化差异，非 (a) 系统性架构损害**
+  - 辅因: 梯度裁剪全局范数微增（~2% 有效 LR 衰减）
+  - 实验设计局限: 样本量不足 + RNG 耦合混淆变量
+- 对 CP-AH-4 判定的影响:
+  - Round 3 的 FAIL 判定**应降级为 INCONCLUSIVE**——无法区分真实效应与随机噪声
+- 下一步（最小验证实验，按优先级）:
+  - **P0**: 多 seed eval（seed=7/8/9，现有 ckpt 直接跑，6h GPU，零训练成本）→ 量化统计可信度
+  - **P1**: RNG 对齐训练（CF forward 保存/恢复 RNG state，4h GPU）→ 决定性实验
+  - **P2**: 梯度裁剪消融（单独裁剪 CF head 和 base，4h GPU）→ 仅在 P1 仍有 gap 时

@@ -43,16 +43,7 @@ framework:
       positional_embeddings: null
   reduce_in_full_precision: true
   a_module:
-    mode: standalone
-    standalone:
-      input_key: a_outputs
-      allow_pseudo_labels_fallback: false
-      strict_missing: true
-      fallback_to_lite: false
-      output_contract:
-        strict_shape: true
-        expected_region_len: 15
-        expected_embedding_dim: 16
+    mode: lite
   corrective_flow:
     enabled: true
     num_layers: 4

@@ -163,7 +163,7 @@ class CorrectiveFlowHead(nn.Module):
         a_gt: torch.Tensor,
         trigger_prob: torch.Tensor,
         region_logits: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, dict]:
         """
         Training forward.
 
@@ -175,7 +175,7 @@ class CorrectiveFlowHead(nn.Module):
             region_logits: [B, C]                 region head output (detached)
 
         Returns:
-            (loss, pred_velocity)
+            (loss, pred_velocity, debug_dict)
         """
         velocity_gt = a_gt - a_prev
 
@@ -189,7 +189,11 @@ class CorrectiveFlowHead(nn.Module):
         region_loss = (region_weight * per_step_loss).mean()
         loss = base_loss + self.region_loss_weight * region_loss
 
-        return loss, pred_velocity
+        debug = {
+            "corrective_flow_base_loss": base_loss.detach(),
+            "corrective_flow_region_loss": region_loss.detach(),
+        }
+        return loss, pred_velocity, debug
 
     @torch.no_grad()
     def predict(
@@ -214,6 +218,8 @@ class CorrectiveFlowHead(nn.Module):
         pred_velocity = self._encode_and_attend(
             vl_embs, a_base, trigger_prob, region_logits
         )
-        region_gate = torch.sigmoid(region_logits).unsqueeze(-1)  # [B, C, 1]
+        region_gate = torch.clamp(
+            torch.sigmoid(region_logits) - 0.3, min=0.0
+        ).unsqueeze(-1)  # [B, C, 1]; zero below sigmoid=0.3
         a_corrected = a_base + region_gate * pred_velocity
         return a_corrected

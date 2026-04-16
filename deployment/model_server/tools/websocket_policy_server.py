@@ -139,6 +139,12 @@ class WebsocketPolicyServer:
                 "data": data,
             }
 
+        # reset episode state (e.g. corrective flow prev_chunk)
+        elif mtype == "reset":
+            if hasattr(self._policy, "reset_cf_state"):
+                self._policy.reset_cf_state()
+            return {"status": "ok", "ok": True, "type": "reset", "request_id": req_id}
+
         # unknow request type
         else:
             return {

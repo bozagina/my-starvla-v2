@@ -83,21 +83,40 @@ threads:
     role: BUILD
     current_gate: phase3_0b_cp_build
     owner: OC
-    status: BLOCKED_WAIT_REMOTE
+    status: DONE_PENDING_REVIEW
     started_at: "2026-04-15T14:00:00+08:00"
+    completed_at: "2026-04-15T20:55:00+08:00"
     note: >
-      One-Step Corrective Flow 本地实现完成。CorrectiveFlowHead 新建并集成至
-      QwenPI (forward/predict_action) + train_starvla (hook_specs)。
-      BD-1~5 决策已落地。本地静态验证全部 PASS。
-      等待远程 500-step smoke train 验证 corrective_flow_loss 有限性和非退化。
-    delivered_artifacts_local:
+      One-Step Corrective Flow 实现及远程 500-step smoke train 全部完成。
+      CorrectiveFlowHead 新建并集成至 QwenPI (forward/predict_action) +
+      train_starvla (hook_specs + decomposed_metric_specs)。
+      BD-1~5 决策已落地。CP-AH-1~3 全部 PASS。CP-AH-4 等待后续 LIBERO eval。
+      CP-AH-1-ext 经 RES 分析采纳方案 B（保持 loss 逻辑不变 + debug metrics 暴露）。
+    remote_evidence:
+      run_id: cp_smoke_500step_20260415_042824
+      repo: /2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA
+      script: tools/handoff/run_cp_smoke_500step.sh
+      steps: 500
+      exit_code: 0
+      metrics_entries: 100
+      mse_score: 0.070034
+    acceptance_hypotheses:
+      CP-AH-1: "PASS — P0 gate active, loss/region=0 in 38/100 steps"
+      CP-AH-1-ext: "PASS (diagnostic) — implicit P0, corrective_flow_region first_half=0.077 → second_half=0.037 (↓52%)"
+      CP-AH-2: "PASS — all 12 loss components finite, no NaN/Inf across 500 steps"
+      CP-AH-3: "PASS — loss/consist first_half=9.3e-5 → second_half=5e-6 (↓95%)"
+      CP-AH-4: "FAIL — CF 62.0% < Baseline 69.0% - 2pp = 67.0%. Escalated to CP-RES for root cause analysis (cp_res_ah4_failure_analysis_request.md)"
+    delivered_artifacts:
       - "starVLA/model/framework/corrective_flow_head.py (新建)"
       - "starVLA/model/framework/QwenPI.py (修改: init/forward/predict_action)"
-      - "starVLA/training/train_starvla.py (修改: hook_specs)"
+      - "starVLA/training/train_starvla.py (修改: hook_specs + decomposed_metric_specs)"
       - "starVLA/config/training/starvla_train_pi_qwen25_corrective_flow.yaml (新建)"
+      - "tools/handoff/run_cp_smoke_500step.sh (新建)"
+      - "docs/algorithm1/handoff/cp_res_ah1_analysis_request.md (新建)"
+      - "docs/algorithm1/handoff/cp_res_ah1_analysis_response.md (RES 交付)"
       - "config diff: framework.corrective_flow + trainer.optional_loss_hooks.corrective_flow"
-      - "local smoke evidence: syntax/AST/lint/YAML all PASS"
-      - "changed-file handoff note: progress_live.md 2026-04-15T14:00:00"
+      - "remote smoke evidence: cp_smoke_500step_20260415_042824/metrics.jsonl (100 entries)"
+      - "changed-file handoff note: progress_live.md 2026-04-15T20:55:00"
     bd_decisions:
       BD-1: "region-gated additive: a_corrected = a_base + sigmoid(region) * velocity"
       BD-2: "no independent corrective action head in v0"
@@ -117,19 +136,95 @@ threads:
     required_artifacts:
       - config diff
       - local smoke evidence
+      - remote smoke evidence
       - changed-file handoff note
-    blocking_conditions:
-      - remote evidence required for acceptance
+    blocking_conditions: []
     handoff_to:
       - CP-REVIEW
 
   - thread_id: CP-REVIEW
     role: REVIEW
-    current_gate: upstream_unblocked_pending_cp_build
+    current_gate: phase3_0b_cp_build_review
     owner: OC
-    status: ACTIVE
-    verdict: UPSTREAM_UNBLOCKED
-    reviewed_at: "2026-04-15T01:00:00+08:00"
+    status: BLOCKED
+    verdict: FAIL_AH4
+    reviewed_at: "2026-04-16T12:00:00+08:00"
+    report: docs/algorithm1/handoff/cp_review_audit_report.md
+    review_rounds:
+      - round: 1
+        date: "2026-04-15T21:30:00+08:00"
+        verdict: CONDITIONAL_PASS
+        blocking_count: 2
+        advisory_count: 4
+        note: >
+          CP-AH-1~3 all PASS with remote evidence. Two MEDIUM blocking items:
+          B-1 dtype restore leak in predict_action(), B-2 reference config
+          a_module.mode mismatch. Frozen constraints fully satisfied.
+      - round: 2
+        date: "2026-04-15T22:00:00+08:00"
+        verdict: PASS
+        blocking_count: 0
+        note: >
+          Quick-Pass: B-1 dtype restore (finally block) verified correct.
+          B-2 a_module.mode=lite verified. Additional in-scope changes
+          (corrective_flow_head debug dict, QwenPI forward debug unpack,
+          train_starvla decomposed_metric_specs) consistent with RES analysis.
+          OBS-QP-1 INFO: research_notes cosmetic LaTeX formatting, non-semantic.
+      - round: 3
+        date: "2026-04-16T12:00:00+08:00"
+        verdict: FAIL_AH4
+        blocking_count: 1
+        advisory_count: 2
+        note: >
+          CP-AH-4 LIBERO eval: Baseline 69.0%, CF 62.0%, Plan A 62.0%,
+          Plan C 64.0%. All below 67.0% threshold. Plan A confirms CF training
+          damages base model -7pp (dominant cause). Plan C inference fix adds
+          +2pp but incomplete (client reset missing). Plan C code changes PASS.
+          RES PAUSE recommendation endorsed. Training-level fix needed.
+      - round: 4
+        date: "2026-04-16T14:00:00+08:00"
+        verdict: INCONCLUSIVE_PENDING_VERIFICATION
+        type: arbitration
+        request_from: CP-RES (self-negation)
+        note: >
+          Independent arbitration on -7pp training damage root cause.
+          KEY FINDING: CF loss is fully detached from VLM — zero gradient path.
+          -7pp is primarily RNG divergence (CF forward consumes extra random
+          numbers shifting flow-matching noise) + minor gradient clipping
+          interaction. z-test p=0.141, NOT statistically significant at α=0.05.
+          200 episodes insufficient (need ~720 for power=0.80). Prior RES
+          H4-primary conclusion falsified by Plan A. Recommended: RNG-aligned
+          retraining + multi-seed eval to distinguish real effect from noise.
+    passed_items:
+      - "CP-AH-1 PASS: loss/region=0 in 38/100 steps, P0 gate active"
+      - "CP-AH-1-ext PASS (diagnostic): corrective_flow_region 0.077→0.037 (↓52%), RES scheme-B verified"
+      - "CP-AH-2 PASS: all 12 loss components finite 500 steps, no NaN/Inf"
+      - "CP-AH-3 PASS: loss/consist 9.3e-5→5e-6 (↓95%), last 5 steps all 0.0"
+      - "CP-AH-4 correctly BLOCKED_WAIT_REMOTE (not claimed as PASS)"
+      - "corrective_flow_head.py: forward() return tuple[Tensor,Tensor,dict] verified"
+      - "corrective_flow_head.py: loss = base_loss + region_loss_weight * region_loss verified"
+      - "corrective_flow_head.py: predict() = a_base + sigmoid(region)*velocity verified"
+      - "corrective_flow_head.py: debug dict keys corrective_flow_base_loss/region_loss present"
+      - "QwenPI.py: conditional init of CorrectiveFlowHead verified"
+      - "QwenPI.py: forward() corrective_flow_loss computed after optional_hook_outputs verified"
+      - "QwenPI.py: debug dict merged into output_dict verified"
+      - "QwenPI.py: predict_action() isinstance(ami, nn.Module) check for bf16 fix verified"
+      - "train_starvla.py: hook_specs corrective_flow entry verified"
+      - "train_starvla.py: decomposed_metric_specs both corrective_flow_base/region entries verified"
+      - "Frozen: a_module_interface.py not modified (git diff empty)"
+      - "Frozen: optional_loss_utils.py not modified (git diff empty)"
+      - "Frozen: LayerwiseFM_ActionHeader.py import-only verified"
+      - "Frozen: cross_attention_dit.py import-only verified"
+    round3_findings:
+      - "F-R3-CRIT-1: CF training damages base model -7pp (Plan A confirmed)"
+      - "F-R3-HIGH-1: Plan C eval incomplete — client reset missing, _cf_prev_chunk leaks"
+      - "F-R3-LOW-1: train/infer region_gate asymmetry (acceptable under RES scheme-B)"
+      - "F-R3-INFO-1: predict() param name a_base should be a_prev"
+    blocking_items:
+      - "B-1 [RESOLVED]: predict_action() dtype restore (Round 2)"
+      - "B-2 [RESOLVED]: reference config mode (Round 2)"
+      - "B-3 [CRITICAL]: CF training damages base model -7pp — needs training-level fix"
+      - "B-4 [HIGH]: Plan C eval incomplete — client episode reset not implemented"
     baseline_anchor:
       vlm: qwen25_authoritative
       acceptance_rule: evidence_only
@@ -144,8 +239,27 @@ threads:
       - artifact checklist
       - pass/fail verdict
     blocking_conditions:
-      - CP-BUILD has not yet delivered artifacts for review
-    handoff_to: []
+      - "CP-AH-4 INCONCLUSIVE: -7pp not statistically significant (p=0.141), need RNG-aligned retraining + multi-seed eval"
+      - "Plan C eval incomplete: client reset missing"
+    handoff_to:
+      - CP-RES
+      - CP-BUILD
+
+  - thread_id: CP-RES-AH4-ANALYSIS
+    role: RES
+    current_gate: cp_ah4_failure_root_cause
+    owner: OC
+    status: PENDING
+    request: docs/algorithm1/handoff/cp_res_ah4_failure_analysis_request.md
+    note: >
+      CP-AH-4 FAIL. CF 62.0% vs Baseline 69.0% (-7pp, threshold -2pp).
+      5 hypotheses (H1-H5) require systematic analysis.
+      Additional question: Baseline 69% vs old-code 30k ~48% (+21pp) source.
+      40k checkpoint NaN incompatibility also needs diagnosis.
+    blocking_conditions:
+      - "CP-AH-4 root cause not yet identified"
+    handoff_to:
+      - CP-BUILD
 
 downstream_rule:
   cp_build_start_condition: >

@@ -147,7 +147,7 @@ threads:
     verdict: PASS
     downstream_usability: USABLE
     reviewed_spec_version: v0.9.3
-    reviewed_at: "2026-04-14T23:30:00+08:00"
+    reviewed_at: "2026-04-15T00:30:00+08:00"
     review_history:
       - round: 1
         date: "2026-04-14T18:00:00+08:00"
@@ -158,6 +158,13 @@ threads:
         verdict: PASS
         blocking_count: 0
         advisory_count: 4
+      - round: 3
+        date: "2026-04-15T00:30:00+08:00"
+        verdict: PASS_CONFIRMED
+        blocking_count: 0
+        advisory_resolved: 3
+        advisory_accepted: 1
+        note: "advisory verification pass — NEW-F1~F3 resolved in 680fba3, NEW-F4 accepted, optional_loss_utils compat verified"
     first_audit_blocking_items_resolved:
       - "F-1 resolved: spec un-gitignored and committed (0aaaf75)"
       - "F-2 resolved: QwenPI.py P0+P1 synced and committed (0aaaf75)"
@@ -185,8 +192,12 @@ threads:
       - "spec §4.3 carve-out correctly scoped (loss logic only, not heads/forward)"
       - "delta_action_norm now outcome-mixed scalar, downstream receives correct value"
       - "AH-1~AH-3 PASS on LIBERO 2000 samples (v0.9.3)"
-      - "AH-4 PASS 500-step (v0.9.2 P0+P1)"
+      - "AH-4 PASS 500-step (v0.9.2 P0+P1, re-validated on v0.9.3 data in ah4_v093_500step_20260414_115012)"
       - "legacy --legacy-labels backward compat preserved"
+      - "optional_loss_utils._coerce_vector zero-pads v0.9.3 4-element vectors to chunk_len correctly"
+      - "fasa_dataset_audit.py v3 detection (outcome_version, v093_fields) verified"
+      - "spec header v0.9.3-draft with v0.9.3 revision entry verified"
+      - "AH-4 v0.9.3 re-validation: 500-step, all 9 losses PASS, total 13.46→1.96"
     baseline_anchor:
       vlm: qwen25_authoritative
       acceptance_rule: evidence_only

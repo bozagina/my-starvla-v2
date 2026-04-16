@@ -1463,6 +1463,8 @@ class VLATrainer(TrainerUtils):
             ("a_loss_consist", "loss/consist", "a_loss"),
             ("corrective_loss_delta", "loss/delta", "corrective_loss"),
             ("corrective_loss_region", "loss/region", "corrective_loss"),
+            ("corrective_flow_base_loss", "loss/corrective_flow_base", "corrective_flow"),
+            ("corrective_flow_region_loss", "loss/corrective_flow_region", "corrective_flow"),
         ]
         for hook_key, metric_name, parent_hook_name in decomposed_metric_specs:
             parent_cfg = _cfg_get(hooks_cfg, parent_hook_name, None)
