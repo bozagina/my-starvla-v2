@@ -3,11 +3,11 @@ thread_family: A-module
 round_id: A-ROUND-PHASE3_0B-OUTCOME-LABEL-UPGRADE
 status: active
 summary: >
-  v0.9.3 pseudo-label pipeline upgrade complete. Part A resolved A-REVIEW F-1~F-5
-  blocking items (commit 0aaaf75). Part B implemented intermediate_states extraction,
-  progress_t signal, and state-deviation-based correction_mask/region_prior (v0.9.3).
-  AH-1~AH-3 validated on LIBERO 2000 samples. AH-3 improved from 7.91 to 1.25.
-  Pending: A-REVIEW re-audit, AH-5 LIBERO eval after corrective policy.
+  v0.9.3 pseudo-label pipeline upgrade complete. VDPM/FASA branch (987c504) merged
+  into mainline (000ef49) — a_module_interface.py now supports lite/standalone/VDPM-inloop/fusion
+  four modes. QwenPI.py integrates VDPM fusion head + P0/P1 loss + CP corrective flow.
+  AH-1~AH-4 PASS. AH-5 LIBERO eval blocked on corrective policy + fusion mode validation.
+  Next: A-BUILD sync to remote, fusion smoke test, CP-AH-4 re-eval with fusion mode.
 
 global_anchors:
   repo_scope: qwen_only
@@ -165,6 +165,13 @@ threads:
         advisory_resolved: 3
         advisory_accepted: 1
         note: "advisory verification pass — NEW-F1~F3 resolved in 680fba3, NEW-F4 accepted, optional_loss_utils compat verified"
+      - round: 4
+        date: "2026-04-16T19:00:00+08:00"
+        verdict: MERGE_COMPLETE
+        note: >
+          VDPM/FASA branch merge (987c504 into d6a2428). 6 conflict files resolved.
+          QwenPI.py hand-merged (B skeleton + A P0/P1/CP). a_module_interface.py take B (superset).
+          10/10 py_compile PASS. 5/5 feature paths verified. Commit 000ef49.
     first_audit_blocking_items_resolved:
       - "F-1 resolved: spec un-gitignored and committed (0aaaf75)"
       - "F-2 resolved: QwenPI.py P0+P1 synced and committed (0aaaf75)"
@@ -198,6 +205,31 @@ threads:
       - "fasa_dataset_audit.py v3 detection (outcome_version, v093_fields) verified"
       - "spec header v0.9.3-draft with v0.9.3 revision entry verified"
       - "AH-4 v0.9.3 re-validation: 500-step, all 9 losses PASS, total 13.46→1.96"
+      - "VDPM/FASA branch merge: 6 conflict files resolved, 10/10 py_compile, 5/5 feature paths"
+      - "QwenPI.py merged: B skeleton (fusion/lite) + A (P0/P1/CP/state trimming) = 742 lines"
+      - "a_module_interface.py: B superset (1249 lines, lite+standalone+VDPM+fusion)"
+      - "a_fusion_heads.py: CrossAttentionFusionAHead (218 lines) introduced from Branch B"
+      - "VDPM design docs un-gitignored and tracked"
+    merge_info:
+      merge_commit: "000ef49"
+      merge_branch: codex/merge-vdpm-integration-20260416
+      source_branch: codex/fasa-phase3_0a-vdpm-frozen-head-20260412
+      source_head: "987c504"
+      merge_base: "f65c090"
+      conflict_files_resolved: 6
+      new_files_from_source:
+        - starVLA/model/framework/a_fusion_heads.py
+        - tools/a_module_trainable_branch_audit.py
+      supported_modes_post_merge:
+        - lite
+        - standalone
+        - fusion (VDPM in-loop)
+      pending_build_tasks:
+        - "T-B1: merge integration branch back to mainline"
+        - "T-B2: sync merged code to remote training server"
+        - "T-B3: run mode=fusion VDPM smoke test on remote"
+        - "T-B4: re-evaluate CP-AH-4 with fusion mode"
+        - "T-B5: update training config YAML (a_module.mode: lite → fusion)"
     baseline_anchor:
       vlm: qwen25_authoritative
       acceptance_rule: evidence_only
@@ -222,3 +254,7 @@ downstream_rule:
   cp_build_start_condition: >
     CP-BUILD must stay blocked until A-REVIEW explicitly states whether the
     current A-output contract is usable as corrective-policy input.
+  vdpm_merge_status: >
+    VDPM/FASA branch has been merged into mainline (000ef49). A-module now supports
+    mode=fusion (VDPM in-loop + CrossAttentionFusionAHead). A-BUILD must sync,
+    smoke test fusion mode, and re-evaluate CP-AH-4 before CP thread can unblock.

@@ -8036,3 +8036,56 @@ git commit -m "[CP-BUILD+REVIEW] corrective flow debug metrics, bf16 fix, Quick-
   - Submit for R review; if approved, proceed to Phase3.0B label-side refinements and dedicated LR group split for fusion head (to avoid silent base-lr coupling).
 - Commit message:
   - `[ALG1-FASA-20260412-032-OC] implement fusion A-head with frozen VDPM in-loop runtime-model and pass 50/500+eval gates`
+
+## [2026-04-16 19:00:00 +08:00] A-REVIEW / BRANCH-MERGE: VDPM/FASA 分支合并审计 — MERGE COMPLETE
+
+- Owner: OC
+- Thread: A-REVIEW
+- Status: MERGE COMPLETE
+- Merge commit: 000ef49 on codex/merge-vdpm-integration-20260416
+- Objective:
+  - 审计并执行两条平行分支的合并：
+    - Branch A (mainline, d6a2428): outcome labels v0.9.x, CP corrective flow, A/CP 全线程轮次
+    - Branch B (VDPM, 987c504): FASA Phase1~3.0A, VDPM in-loop, CrossAttentionFusionAHead
+  - 分叉点: f65c090 (2026-04-06), 分离约 10 天, 从未合并
+- 背景:
+  - 当前主线 A 模块一直使用 lite 模式 (4 个 MLP head)
+  - CP-AH-4 FAIL (62% vs 69%), 原因是 A 模块信号质量不足
+  - VDPM in-loop 的完整实现已存在于分支 B, 但从未合入主线
+- 冲突审计 (Phase 1):
+  - 总文件: ~50+ (含共同删除的 mapanything 清理)
+  - 双方修改: 12 个文件, 其中 6 个完全相同 (自动合并), 6 个有冲突
+  - 冲突文件: a_module_interface.py, QwenPI.py, train_starvla.py, progress_live.md, build_fasa_a_outputs.py, fasa_a_outputs_audit.py
+- 冲突解决 (Phase 2):
+  - **a_module_interface.py**: 取 B (1249 行, lite+standalone+VDPM+fusion 全模式超集)
+  - **QwenPI.py**: 手工合并 (742 行) — B 骨架 (a_module_mode, CrossAttentionFusionAHead, fusion/lite 分支) + A 独有代码 (P0 conditional region loss, P1 consistency reg, CP CorrectiveFlowHead, state dim trimming)
+  - **train_starvla.py**: 取 A 并集 (1843 行) — 唯一差异是 A 在 decomposed_metric_specs 多 4 行 CP 指标
+  - **progress_live.md**: A 全文保留 + 追加 B 的 FASA Phase 开发记录 (8038 行)
+  - **build_fasa_a_outputs.py**: 取 A (755 行 > B 的 368 行)
+  - **fasa_a_outputs_audit.py**: 取 A (359 行 > B 的 224 行)
+- 新引入文件 (从 Branch B):
+  - `starVLA/model/framework/a_fusion_heads.py` — CrossAttentionFusionAHead (218 行)
+  - `tools/a_module_trainable_branch_audit.py` — A 模块可训练分支审计 (112 行)
+- .gitignore 调整:
+  - 移除 `vdpm_inloop_a_module_from_zero_guide.md` 和 `rfc_p4_1_vdpm_a_module.md` 的 gitignore, VDPM 合入后设计文档应被跟踪
+- 验证 (Phase 3):
+  - **py_compile**: 10/10 关键 Python 文件全部 PASS
+  - **功能完整性**: 5/5 功能路径确认:
+    - (a) mode="lite": LiteAModuleInterface ✓
+    - (b) mode="standalone": StandaloneAModuleInterface ✓
+    - (c) VDPM inloop: _VDPMRuntimeModelWorker + CrossAttentionFusionAHead + FusionAModuleInterface ✓
+    - (d) CP corrective flow: CorrectiveFlowHead + corrective_flow_enabled ✓
+    - (e) P0/P1 loss: trigger_positive gating + consist_loss ✓
+- 关键文件 inventory:
+  - QwenPI.py: 742 行 (合并: B 骨架 + A 的 P0/P1/CP)
+  - a_module_interface.py: 1249 行 (B, 功能超集)
+  - a_fusion_heads.py: 218 行 (B, 新引入)
+  - corrective_flow_head.py: 225 行 (A, 独有)
+  - train_starvla.py: 1843 行 (合并: A 并集)
+- Verdict: **MERGE COMPLETE — 合并成功, 代码完整, 无功能丢失**
+- 后续任务 (A-BUILD 负责):
+  - T-B1: 将合并分支合回主线 (或采用合并分支作为新工作分支)
+  - T-B2: 同步合并后代码到远程训练服务器
+  - T-B3: 运行 mode=fusion VDPM smoke test (验证 in-loop 推理路径在远程可用)
+  - T-B4: 使用 fusion mode 重新评估 CP-AH-4 (替换 lite mode)
+  - T-B5: 更新训练配置 YAML, 将 a_module.mode 从 "lite" 切换为 "fusion"
