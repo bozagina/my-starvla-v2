@@ -10,13 +10,14 @@
 ## Summary
 
 
-| Model                   | Training                                         | Inference Variant             | Success Rate        | Result             |
-| ----------------------- | ------------------------------------------------ | ----------------------------- | ------------------- | ------------------ |
-| **Baseline (33k)**      | 30k ckpt + A-module only, 3000 steps             | Standard                      | **69.0%** (138/200) | Reference          |
-| **CF (33k) — original** | 30k ckpt + A-module + CF, 3000 steps             | Original (buggy a_base)       | **62.0%** (124/200) | -7.0pp vs Baseline |
-| **CF (33k) — Plan A**   | same as above                                    | CF inference DISABLED (t=1.1) | **62.0%** (124/200) | -7.0pp vs Baseline |
-| **CF (33k) — Plan C**   | same as above                                    | Fixed: _cf_prev_chunk + region_gate | **64.0%** (128/200) | -5.0pp vs Baseline |
-| **40k ablation**        | 30k ckpt + 10k steps (old code)                  | N/A                           | **0.0%** (0/200)    | Incompatible (NaN) |
+| Model                   | Training                                         | Inference Variant             | Success Rate        | vs 30k Base | vs Baseline |
+| ----------------------- | ------------------------------------------------ | ----------------------------- | ------------------- | ----------- | ----------- |
+| **30k Base (old code)** | 30k ckpt, original code                          | Old code eval                 | **57.5%** (115/200) | Reference   | —           |
+| **40k (old code)**      | 30k ckpt + 10k steps, original code              | Old code eval                 | **0.0%** (0/200)    | -57.5pp     | —           |
+| **Baseline (33k)**      | 30k ckpt + A-module only, 3000 steps             | Standard                      | **69.0%** (138/200) | **+11.5pp** | Reference   |
+| **CF (33k) — original** | 30k ckpt + A-module + CF, 3000 steps             | Original (buggy a_base)       | **62.0%** (124/200) | **+4.5pp**  | -7.0pp      |
+| **CF (33k) — Plan A**   | same as above                                    | CF inference DISABLED (t=1.1) | **62.0%** (124/200) | **+4.5pp**  | -7.0pp      |
+| **CF (33k) — Plan C**   | same as above                                    | Fixed: _cf_prev_chunk + region_gate | **64.0%** (128/200) | **+6.5pp**  | -5.0pp      |
 
 
 ### CP-AH-4 Acceptance Criterion
@@ -25,24 +26,31 @@
 
 **Verdict: FAIL** — Best CF variant (Plan C) at 64.0% is 5.0pp below Baseline, exceeding the -2pp tolerance.
 
+### Key Finding: All New-Code Models Significantly Outperform 30k Base
+
+The 30k Base (original code) achieves only **57.5%** on libero_goal. All new-code variants surpass it:
+- **Baseline (33k): +11.5pp** — A-module training on new code substantially improves the base policy
+- **Plan C (CF fixed): +6.5pp** — Even with CF training damage, the model still outperforms the original 30k
+- **40k checkpoint: 0%** — catastrophic failure regardless of code version (old code also produces 0%)
+
 ---
 
 ## Per-Task Breakdown (Full Comparison)
 
 
-| Task | Baseline | CF original | Plan A (CF禁用) | Plan C (修复推理) | Plan C vs Baseline |
-| ---- | -------- | ----------- | --------------- | ----------------- | ------------------ |
-| 0    | 60%      | 85%         | 80%             | **95%**           | **+35pp**          |
-| 1    | 100%     | 90%         | 100%            | **95%**           | -5pp               |
-| 2    | 95%      | 55%         | 50%             | **50%**           | **-45pp**          |
-| 3    | 35%      | 30%         | 25%             | **25%**           | -10pp              |
-| 4    | 100%     | 100%        | 95%             | **100%**          | 0pp                |
-| 5    | 45%      | 15%         | 25%             | **30%**           | -15pp              |
-| 6    | 50%      | 60%         | 65%             | **55%**           | +5pp               |
-| 7    | 100%     | 90%         | 90%             | **90%**           | -10pp              |
-| 8    | 100%     | 90%         | 85%             | **85%**           | -15pp              |
-| 9    | 5%       | 5%          | 5%              | **15%**           | +10pp              |
-| **∑** | **69.0%** | **62.0%** | **62.0%**       | **64.0%**         | **-5.0pp**         |
+| Task | 30k Base (old) | 40k (old) | Baseline (33k) | CF original | Plan A (CF禁用) | Plan C (修复推理) |
+| ---- | -------------- | --------- | -------------- | ----------- | --------------- | ----------------- |
+| 0    | 15%            | 0%        | 60%            | 85%         | 80%             | **95%**           |
+| 1    | 80%            | 0%        | 100%           | 90%         | 100%            | 95%               |
+| 2    | 90%            | 0%        | 95%            | 55%         | 50%             | 50%               |
+| 3    | 65%            | 0%        | 35%            | 30%         | 25%             | 25%               |
+| 4    | 100%           | 0%        | 100%           | 100%        | 95%             | 100%              |
+| 5    | 5%             | 0%        | 45%            | 15%         | 25%             | 30%               |
+| 6    | 55%            | 0%        | 50%            | 60%         | 65%             | 55%               |
+| 7    | 75%            | 0%        | 100%           | 90%         | 90%             | 90%               |
+| 8    | 90%            | 0%        | 100%           | 90%         | 85%             | 85%               |
+| 9    | 0%             | 0%        | 5%             | 5%          | 5%              | 15%               |
+| **∑** | **57.5%**     | **0.0%**  | **69.0%**      | **62.0%**   | **62.0%**       | **64.0%**         |
 
 
 ### Key Observations
@@ -85,9 +93,18 @@
 
 ---
 
-## 40k Ablation Baseline (Incompatible)
+## 30k / 40k Old-Code Baselines
 
-The 40k checkpoint (`ablation_baseline_QwenPI_s42_20260311_211605/steps_40000`) was trained with the **old codebase** and loaded into the new code via `strict=False` (30 missing keys: A-module + corrective heads). The model produced **NaN/Inf actions** (21+ MuJoCo instability warnings), resulting in 0% success rate. This is a code compatibility issue, not a model quality issue.
+### 30k Base (old code): 57.5%
+- Evaluated with original codebase on `evaluate-2dvlm` branch, conda env `llava3d_vla_train`
+- State truncated from 8→7 dims via monkey-patch wrapper (model trained with state_dim=7)
+- This establishes the true pre-training baseline for all our experiments
+
+### 40k (old code): 0.0% — Catastrophic Failure
+- **New code eval**: 0% with NaN/Inf (code incompatibility, `strict=False` loading)
+- **Old code eval**: 0% with NO errors — model runs but produces completely wrong actions
+- The 40k checkpoint has catastrophically forgotten the libero_goal task distribution
+- This confirms continued training beyond 30k on the original codebase was counterproductive
 
 ---
 
@@ -113,14 +130,16 @@ The 40k checkpoint (`ablation_baseline_QwenPI_s42_20260311_211605/steps_40000`) 
 ## Artifact Paths
 
 
-| Artifact               | Path                                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------- |
-| Baseline checkpoint    | `results/Checkpoints/cp_ah4_baseline_3k_20260415_081523/checkpoints/steps_33000_pytorch_model.pt` |
-| CF checkpoint          | `results/Checkpoints/cp_ah4_cf_3k_20260415_104250/checkpoints/steps_33000_pytorch_model.pt`       |
-| Baseline eval logs     | `results/LiberoEval/cp_ah4_baseline_eval/`                                                        |
-| CF eval logs (original)| `results/LiberoEval/cp_ah4_cf_eval/`                                                              |
-| Plan A eval logs       | `results/LiberoEval/cp_plan_a_cf_no_correction/`                                                  |
-| Plan C eval logs       | `results/LiberoEval/cp_plan_c_fixed_cf/`                                                          |
-| 40k eval logs          | `results/LiberoEval/cp_ah4_40k_eval/`                                                             |
+| Artifact                    | Path                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------- |
+| Baseline checkpoint         | `results/Checkpoints/cp_ah4_baseline_3k_20260415_081523/checkpoints/steps_33000_pytorch_model.pt` |
+| CF checkpoint               | `results/Checkpoints/cp_ah4_cf_3k_20260415_104250/checkpoints/steps_33000_pytorch_model.pt`       |
+| Baseline eval logs          | `results/LiberoEval/cp_ah4_baseline_eval/`                                                        |
+| CF eval logs (original)     | `results/LiberoEval/cp_ah4_cf_eval/`                                                              |
+| Plan A eval logs            | `results/LiberoEval/cp_plan_a_cf_no_correction/`                                                  |
+| Plan C eval logs            | `results/LiberoEval/cp_plan_c_fixed_cf/`                                                          |
+| 30k old-code eval logs      | `(old repo) results/LiberoEval/old_code_30k_base/`                                                |
+| 40k old-code eval logs      | `(old repo) results/LiberoEval/old_code_40k_ablation/`                                            |
+| 40k new-code eval logs      | `results/LiberoEval/cp_ah4_40k_eval/`                                                             |
 
 

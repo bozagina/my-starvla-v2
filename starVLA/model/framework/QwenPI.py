@@ -188,21 +188,23 @@ class Qwen_PI(baseframework):
             corr_layers = int(_cfg_get(corr_flow_cfg, "num_layers", 4))
             corr_heads = int(_cfg_get(corr_flow_cfg, "num_heads", 16))
             corr_region_w = float(_cfg_get(corr_flow_cfg, "region_loss_weight", 0.5))
+            # BD-7: default self-attn only (use_cross_attention=false)
+            self.corrective_flow_use_cross_attention = bool(
+                _cfg_get(corr_flow_cfg, "use_cross_attention", False)
+            )
+            cf_vl_hidden = llm_hidden_size if self.corrective_flow_use_cross_attention else 0
             self.corrective_flow_head = CorrectiveFlowHead(
                 action_dim=config.framework.action_model.action_dim,
                 chunk_len=self.chunk_len,
                 hidden_dim=corr_hidden,
-                vl_hidden_dim=llm_hidden_size,
+                vl_hidden_dim=cf_vl_hidden,
                 num_layers=corr_layers,
                 num_heads=corr_heads,
                 region_loss_weight=corr_region_w,
             )
-            _cfg_thresh = float(_cfg_get(corr_flow_cfg, "trigger_threshold", 0.5))
-            _env_thresh = os.environ.get("STARVLA_CF_TRIGGER_THRESHOLD")
-            self.corrective_flow_trigger_threshold = float(_env_thresh) if _env_thresh else _cfg_thresh
-            if _env_thresh:
-                logger.info("CF trigger_threshold overridden by env: %s (config was %s)", _env_thresh, _cfg_thresh)
             self._cf_prev_chunk: Optional[torch.Tensor] = None
+            # ENG-1: cached region_logits from fusion head for CF loss weighting
+            self._cached_fusion_region_logits: Optional[torch.Tensor] = None
 
     def reset_cf_state(self):
         """Reset corrective-flow episode state (call at episode boundary)."""
@@ -248,6 +250,9 @@ class Qwen_PI(baseframework):
             delta_pred = fusion_outputs["delta_pred"]
             region_logits = fusion_outputs["region_logits_train"]
             embed_pred = fusion_outputs["dynamic_embedding_pred"]
+            # ENG-1: cache for CF loss weighting (detached — gradient stops here)
+            if self.corrective_flow_enabled:
+                self._cached_fusion_region_logits = region_logits.detach()
             debug_metrics["debug/a_module_mode_fusion"] = 1.0
             debug_metrics["debug/a_module_mode_vdpm_frozen_head"] = 1.0
             debug_metrics["debug/vdpm_fallback_to_lite"] = 0.0
@@ -524,25 +529,40 @@ class Qwen_PI(baseframework):
                     a_prev = actions[:, : self.chunk_len, :]
                 else:
                     a_prev = torch.zeros_like(actions_target)
-                a_prev_noisy = a_prev + noise_scale * torch.randn_like(a_prev)
 
-                pooled_for_cf = base_hidden.to(dtype=action_model_dtype).mean(dim=1)
-                a_predictions_cf = self.a_module_interface.predict(
-                    pooled_hidden=pooled_for_cf,
-                    examples=examples,
-                    action_loss=action_loss,
-                    chunk_len=self.chunk_len,
+                # ENG-3: RNG alignment — independent Generator for CF noise
+                cf_rng = torch.Generator(device=a_prev.device)
+                cf_rng.manual_seed(42)
+                a_prev_noisy = a_prev + noise_scale * torch.randn(
+                    a_prev.shape, device=a_prev.device, dtype=a_prev.dtype,
+                    generator=cf_rng,
                 )
-                trigger_prob = torch.sigmoid(a_predictions_cf.trigger_logit).detach().unsqueeze(-1)
-                region_logits = a_predictions_cf.region_logits.detach()
-                vl_embs_for_cf = base_hidden.to(dtype=action_model_dtype).detach()
+
+                # ENG-1: region_logits source depends on a_module mode (RTC: loss-only)
+                if self.a_module_mode == "fusion" and self._cached_fusion_region_logits is not None:
+                    region_logits_for_cf = self._cached_fusion_region_logits
+                else:
+                    pooled_for_cf = base_hidden.to(dtype=action_model_dtype).mean(dim=1)
+                    a_predictions_cf = self.a_module_interface.predict(
+                        pooled_hidden=pooled_for_cf,
+                        examples=examples,
+                        action_loss=action_loss,
+                        chunk_len=self.chunk_len,
+                    )
+                    region_logits_for_cf = a_predictions_cf.region_logits.detach()
+
+                # BD-7: vl_embs only when cross-attention is enabled
+                vl_embs_for_cf = (
+                    base_hidden.to(dtype=action_model_dtype).detach()
+                    if self.corrective_flow_use_cross_attention
+                    else None
+                )
 
                 cf_loss, _, cf_debug = self.corrective_flow_head(
-                    vl_embs=vl_embs_for_cf,
                     a_prev=a_prev_noisy.to(dtype=action_model_dtype),
                     a_gt=actions_target.to(dtype=action_model_dtype),
-                    trigger_prob=trigger_prob.to(dtype=action_model_dtype),
-                    region_logits=region_logits.to(dtype=action_model_dtype),
+                    region_logits=region_logits_for_cf.to(dtype=action_model_dtype),
+                    vl_embs=vl_embs_for_cf,
                 )
                 output_dict["corrective_flow_loss"] = cf_loss
                 for k, v in cf_debug.items():
@@ -617,45 +637,33 @@ class Qwen_PI(baseframework):
         normalized_actions = pred_actions.detach().to(dtype=torch.float32).cpu().numpy()
 
         if self.corrective_flow_enabled:
+            # RTC paradigm: no A-module dependency, no trigger gating
             with torch.autocast("cuda", enabled=False):
-                ami = self.a_module_interface
-                ami_is_module = isinstance(ami, nn.Module)
-                orig_ami_dtype = None
                 orig_cf_dtype = next(self.corrective_flow_head.parameters()).dtype
                 try:
-                    if ami_is_module:
-                        orig_ami_dtype = next(ami.parameters()).dtype
-                        ami.float()
                     self.corrective_flow_head.float()
 
-                    pooled_cf = base_hidden.float().mean(dim=1)
-                    a_predictions_cf = ami.predict(
-                        pooled_hidden=pooled_cf,
-                        examples=examples,
-                        action_loss=torch.zeros(1, device=base_hidden.device),
-                        chunk_len=self.chunk_len,
+                    a_prev_for_cf = (
+                        self._cf_prev_chunk.to(device=pred_actions.device)
+                        if self._cf_prev_chunk is not None
+                        else torch.zeros_like(pred_actions)
                     )
-                    trigger_prob = torch.sigmoid(a_predictions_cf.trigger_logit)
-                    if trigger_prob.max().item() > self.corrective_flow_trigger_threshold:
-                        region_logits = a_predictions_cf.region_logits
-                        a_prev_for_cf = (
-                            self._cf_prev_chunk.to(device=pred_actions.device)
-                            if self._cf_prev_chunk is not None
-                            else torch.zeros_like(pred_actions)
-                        )
-                        a_corrected = self.corrective_flow_head.predict(
-                            vl_embs=base_hidden.float(),
-                            a_base=a_prev_for_cf.float(),
-                            trigger_prob=trigger_prob.unsqueeze(-1).float(),
-                            region_logits=region_logits.float(),
-                        )
-                        normalized_actions = a_corrected.detach().to(dtype=torch.float32).cpu().numpy()
+
+                    vl_embs_for_cf = (
+                        base_hidden.float()
+                        if self.corrective_flow_use_cross_attention
+                        else None
+                    )
+
+                    a_corrected = self.corrective_flow_head.predict(
+                        a_prev=a_prev_for_cf.float(),
+                        vl_embs=vl_embs_for_cf,
+                    )
+                    normalized_actions = a_corrected.detach().to(dtype=torch.float32).cpu().numpy()
                     self._cf_prev_chunk = pred_actions.detach().clone()
                 except RuntimeError as e:
-                    logger.warning("Corrective flow inference skipped (dtype): %s", e)
+                    logger.warning("Corrective flow inference skipped: %s", e)
                 finally:
-                    if ami_is_module and orig_ami_dtype is not None:
-                        ami.to(dtype=orig_ami_dtype)
                     self.corrective_flow_head.to(dtype=orig_cf_dtype)
 
         return {"normalized_actions": normalized_actions}

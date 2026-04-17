@@ -1,21 +1,23 @@
 schema_version: harness_v2_thread_manifest_v1
 thread_family: corrective-policy
-round_id: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
-status: BLOCKED_WAIT_UPSTREAM
+round_id: CP-ROUND-FUSION-RESUME
+status: ACTIVE
 cp_review_verdict: UPSTREAM_UNBLOCKED
 cp_review_date: "2026-04-15T01:00:00+08:00"
-blocked_at: "2026-04-16T22:00:00+08:00"
-blocked_reason: >
-  A-module 开发偏差：当前 A-module 使用 lite 模式（MLP heads 从 VLM pooled
-  features 简单投影），未达到预期的 VDPM in-loop inference。lite 模式下
-  trigger/region 信号质量不足以支撑有效的 corrective policy。CP 全线程
-  暂停，等待 A-module 升级至 VDPM in-loop inference 后恢复。
+unblocked_at: "2026-04-17T00:00:00+08:00"
+previous_block:
+  blocked_at: "2026-04-16T22:00:00+08:00"
+  blocked_reason: >
+    A-module lite 模式信号质量不足，CP-AH-4 FAIL (62% vs 69%)。
+    CP 全线程暂停等待 A-module 升级至 VDPM in-loop inference。
+  resolved_by: >
+    A-module 已完成 VDPM fusion 模式升级。T-B1~T-B4 ALL PASS。
+    A-REVIEW Round 5 确认 fusion mode ACCEPTED, A-output USABLE_FOR_DOWNSTREAM。
 summary: >
-  CP 全线程 BLOCKED。根因：A-module lite 模式（MLP heads）的 trigger/region
-  信号质量不足，corrective policy 在此基础上效果受限（CP-AH-4 FAIL，
-  最优 Plan C 仅 64% vs Baseline 69%）。经分析确认问题根源不在 CF 架构
-  本身，而在上游 A-module 的信号质量。需等待 A-module 完成 VDPM in-loop
-  inference 升级后，CP 线程方可恢复。
+  CP-RES fusion 恢复轮完成（RFC v1.1 RTC 范式修订）。核心架构变化：
+  trigger/region 从 CF 模型输入中移除，仅保留为训练时 loss 权重（RTC 范式）。
+  推理时 CF 仅依赖 a_prev，完全不需要 A-module / VDPM。消除了 CP-R2-v1（推理
+  融合适配）和 CP-R3-v1（VDPM 延迟）两项风险。CP-BUILD 待启动 v1.1 实现。
 
 global_anchors:
   repo_scope: qwen_only
@@ -32,7 +34,7 @@ contracts:
   consume:
     - a_outputs_current_reviewed
   emit:
-    - delta_action_v0_draft
+    - delta_action_v0_draft (updated for fusion)
 
 upstream_gate:
   required_verdict: >
@@ -41,45 +43,56 @@ upstream_gate:
   verdict_source: docs/algorithm1/handoff/manifests/a_module_current_round.yaml
   current_verdict: USABLE
   verdict_detail: >
-    A-REVIEW Round 3 (2026-04-15T00:30:00+08:00): PASS_CONFIRMED,
-    downstream_usability=USABLE, no blocking items. A-output contract
-    v0.9.3 stable. CP-BUILD and CP-RES may proceed without reservation.
+    A-REVIEW Round 5 (2026-04-16T23:50:00+08:00): PASS, fusion mode ACCEPTED.
+    A-output USABLE_FOR_DOWNSTREAM under fusion mode. T-B4 fusion AH-4 500step
+    PASS: a_loss -46.4%, 0 NaN/Inf, VDPM 0 failures. Seven-field contract preserved.
+    CP threads may resume with fusion-mode A outputs.
   evidence_refs:
-    - "a_module_current_round.yaml: threads[A-REVIEW].downstream_usability = USABLE"
-    - "a_module_current_round.yaml: threads[A-REVIEW].status = done, verdict = PASS"
-    - "a_module_current_round.yaml: review_history[round=3].verdict = PASS_CONFIRMED"
-    - "progress_live.md: 2026-04-15 00:30:00 — Downstream usability: USABLE (unchanged)"
-    - "progress_live.md: CP-BUILD and CP-RES may proceed without reservation"
+    - "a_module_current_round.yaml: threads[A-REVIEW].review_history[round=5].verdict = PASS"
+    - "a_module_current_round.yaml: downstream_rule.cp_unblock_decision (2026-04-17)"
+    - "a_module_current_round.yaml: downstream_rule.tb4_evidence.verdict = AH-4_PASS"
+    - "T-B4 run_id: tb4_fusion_ah4_500step_20260416_113826"
+    - "A-module mode: fusion (VDPM in-loop + CrossAttentionFusionAHead)"
 
 threads:
   - thread_id: CP-RES
     role: RES
-    current_gate: phase3_0b_cp_research
+    current_gate: phase3_0b_cp_fusion_resume
     owner: OC
-    status: done
-    delivered_at: "2026-04-15T02:00:00+08:00"
+    status: DONE
+    delivered_at: "2026-04-17T02:00:00+08:00"
     delivered_artifacts:
-      - policy RFC (docs/algorithm1/handoff/cp_res_policy_rfc.md)
-      - interface assumptions doc (docs/algorithm1/handoff/cp_res_interface_assumptions.md)
-      - blocked items list (docs/algorithm1/handoff/cp_res_blocked_items.md)
+      - "Policy RFC v1.1 (RTC+fusion): docs/algorithm1/handoff/cp_res_policy_rfc_v1_fusion.md"
+      - "Interface Assumptions v1.1: docs/algorithm1/handoff/cp_res_interface_assumptions_v1_fusion.md"
+      - "Blocked Items v1.1: docs/algorithm1/handoff/cp_res_blocked_items_v1_fusion.md"
     note: >
-      Defined delta-action objective, training paradigm (metadata-prediction heads),
-      A-output consumption rules (stable: risk_score/trigger_label/delta_action_norm/
-      correction_mask/affected_region_prior), and CP-AH-1~4 acceptance hypotheses.
-      delta_action_v0_draft contract drafted. No blocking items for CP-RES.
-      CP-BUILD悬挂决策 BD-1~5 已识别。CP-AH-4 BLOCKED_WAIT_REMOTE 等待远程验证。
+      Fusion 恢复轮研究完成（v1.1 RTC 范式修订）。核心结论：
+      (1) BD-8 新增：trigger/region 从 CF 模型输入中移除，仅保留为训练时 loss 权重
+      (2) BD-1 修订：pure additive（a_prev + velocity），去掉 region gate
+      (3) BD-3：训练时 fusion，推理时 CF 不依赖 A-module
+      (4) BD-7：推荐 self-attention only（去 VLM cross-attention）
+      (5) 消除 CP-R2-v1（推理融合适配）和 CP-R3-v1（VDPM 延迟）两项 HIGH/MEDIUM 风险
+      (6) 保留 ENG-1（训练信号来源统一）、ENG-3（RNG 对齐）、ENG-4（episode reset）
+      (7) CP-AH-4-v1 多 seed 评估 + CP-AH-5 RNG 对齐验证
+    previous_delivery:
+      round_id: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM
+      date: "2026-04-15T02:00:00+08:00"
+      artifacts:
+        - "docs/algorithm1/handoff/cp_res_policy_rfc.md (v0)"
+        - "docs/algorithm1/handoff/cp_res_interface_assumptions.md (v0)"
+        - "docs/algorithm1/handoff/cp_res_blocked_items.md (v0)"
     baseline_anchor:
       vlm: qwen25_authoritative
-      a_output_contract: v0.9.3_frozen
+      a_output_contract: v0.9.3_frozen (fusion mode)
       schema: p1_shared_builder_v1
     allowed_paths:
       - docs/algorithm1/handoff/**
       - docs/starvla_retrofit/handoff/**
       - tools/*audit*.py
     required_artifacts:
-      - policy RFC
-      - interface assumptions doc
-      - blocked items list
+      - policy RFC (fusion revision)
+      - interface assumptions (fusion update)
+      - blocked items (fusion update)
     blocking_conditions: []
     handoff_to:
       - CP-BUILD
@@ -87,51 +100,28 @@ threads:
 
   - thread_id: CP-BUILD
     role: BUILD
-    current_gate: phase3_0b_cp_build
+    current_gate: phase3_0b_cp_fusion_build
     owner: OC
-    status: DONE_PENDING_REVIEW
-    started_at: "2026-04-15T14:00:00+08:00"
-    completed_at: "2026-04-15T20:55:00+08:00"
+    status: IN_PROGRESS
+    started_at: "2026-04-17T10:00:00+08:00"
     note: >
-      One-Step Corrective Flow 实现及远程 500-step smoke train 全部完成。
-      CorrectiveFlowHead 新建并集成至 QwenPI (forward/predict_action) +
-      train_starvla (hook_specs + decomposed_metric_specs)。
-      BD-1~5 决策已落地。CP-AH-1~3 全部 PASS。CP-AH-4 等待后续 LIBERO eval。
-      CP-AH-1-ext 经 RES 分析采纳方案 B（保持 loss 逻辑不变 + debug metrics 暴露）。
-    remote_evidence:
-      run_id: cp_smoke_500step_20260415_042824
-      repo: /2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA
-      script: tools/handoff/run_cp_smoke_500step.sh
-      steps: 500
-      exit_code: 0
-      metrics_entries: 100
-      mse_score: 0.070034
-    acceptance_hypotheses:
-      CP-AH-1: "PASS — P0 gate active, loss/region=0 in 38/100 steps"
-      CP-AH-1-ext: "PASS (diagnostic) — implicit P0, corrective_flow_region first_half=0.077 → second_half=0.037 (↓52%)"
-      CP-AH-2: "PASS — all 12 loss components finite, no NaN/Inf across 500 steps"
-      CP-AH-3: "PASS — loss/consist first_half=9.3e-5 → second_half=5e-6 (↓95%)"
-      CP-AH-4: "FAIL — CF 62.0% < Baseline 69.0% - 2pp = 67.0%. Escalated to CP-RES for root cause analysis (cp_res_ah4_failure_analysis_request.md)"
-    delivered_artifacts:
-      - "starVLA/model/framework/corrective_flow_head.py (新建)"
-      - "starVLA/model/framework/QwenPI.py (修改: init/forward/predict_action)"
-      - "starVLA/training/train_starvla.py (修改: hook_specs + decomposed_metric_specs)"
-      - "starVLA/config/training/starvla_train_pi_qwen25_corrective_flow.yaml (新建)"
-      - "tools/handoff/run_cp_smoke_500step.sh (新建)"
-      - "docs/algorithm1/handoff/cp_res_ah1_analysis_request.md (新建)"
-      - "docs/algorithm1/handoff/cp_res_ah1_analysis_response.md (RES 交付)"
-      - "config diff: framework.corrective_flow + trainer.optional_loss_hooks.corrective_flow"
-      - "remote smoke evidence: cp_smoke_500step_20260415_042824/metrics.jsonl (100 entries)"
-      - "changed-file handoff note: progress_live.md 2026-04-15T20:55:00"
-    bd_decisions:
-      BD-1: "region-gated additive: a_corrected = a_base + sigmoid(region) * velocity"
-      BD-2: "no independent corrective action head in v0"
-      BD-3: "lite mode (per CP-RES suggestion)"
-      BD-4: "do not consume dynamic_embedding (v0 simplification)"
-      BD-5: "do not consume region_target_15 (use chunk_len-sized region)"
+      Phase 1-2 完成：CorrectiveFlowHead RTC 改造 + QwenPI 训练/推理路径修改 +
+      py_compile 3/3 PASS + 3 个新训练脚本已创建。
+      等待远程 500-step smoke test 验证代码正确性后进入多 seed 训练。
+    upstream_rfc: docs/algorithm1/handoff/cp_res_policy_rfc_v1_fusion.md (v1.1 RTC)
+    required_engineering_tasks:
+      - "ARCH-1: CorrectiveFlowHead 架构修订 — 移除 MetadataEncoder 输入、修改 forward/predict 签名"
+      - "ARCH-2: BD-7 决策 — 去掉 VLM cross-attention（推荐）或保留作为消融对比"
+      - "ENG-1: CF 训练路径 region_logits 统一为 fusion head 实时输出（仅 loss 权重）"
+      - "ENG-3: RNG 对齐实现（独立 Generator）"
+      - "ENG-4: Episode reset 链路修复（_cf_prev_chunk reset）"
+      - "TRAIN: 多 seed 训练（≥3 seeds）fusion baseline + fusion CF"
+      - "EVAL: CP-AH-4-v1 多 seed LIBERO eval + CP-AH-5 RNG 对齐验证"
+    bd_decisions_pending:
+      BD-7: "CF 架构 VLM cross-attention（推荐去掉，可做 A/B 消融）"
     baseline_anchor:
       vlm: qwen25_authoritative
-      a_output_contract: v0.9.3_frozen
+      a_output_contract: v0.9.3_frozen (fusion mode)
       schema: p1_shared_builder_v1
     allowed_paths:
       - starVLA/model/framework/**
@@ -144,93 +134,26 @@ threads:
       - local smoke evidence
       - remote smoke evidence
       - changed-file handoff note
-    blocking_conditions: []
+    blocking_conditions:
+      - "ENG-1~4 需在训练前解决"
     handoff_to:
       - CP-REVIEW
 
   - thread_id: CP-REVIEW
     role: REVIEW
-    current_gate: phase3_0b_cp_build_review
+    current_gate: phase3_0b_cp_fusion_review
     owner: OC
-    status: BLOCKED
-    verdict: FAIL_AH4
-    reviewed_at: "2026-04-16T12:00:00+08:00"
-    report: docs/algorithm1/handoff/cp_review_audit_report.md
-    review_rounds:
-      - round: 1
-        date: "2026-04-15T21:30:00+08:00"
-        verdict: CONDITIONAL_PASS
-        blocking_count: 2
-        advisory_count: 4
-        note: >
-          CP-AH-1~3 all PASS with remote evidence. Two MEDIUM blocking items:
-          B-1 dtype restore leak in predict_action(), B-2 reference config
-          a_module.mode mismatch. Frozen constraints fully satisfied.
-      - round: 2
-        date: "2026-04-15T22:00:00+08:00"
-        verdict: PASS
-        blocking_count: 0
-        note: >
-          Quick-Pass: B-1 dtype restore (finally block) verified correct.
-          B-2 a_module.mode=lite verified. Additional in-scope changes
-          (corrective_flow_head debug dict, QwenPI forward debug unpack,
-          train_starvla decomposed_metric_specs) consistent with RES analysis.
-          OBS-QP-1 INFO: research_notes cosmetic LaTeX formatting, non-semantic.
-      - round: 3
-        date: "2026-04-16T12:00:00+08:00"
-        verdict: FAIL_AH4
-        blocking_count: 1
-        advisory_count: 2
-        note: >
-          CP-AH-4 LIBERO eval: Baseline 69.0%, CF 62.0%, Plan A 62.0%,
-          Plan C 64.0%. All below 67.0% threshold. Plan A confirms CF training
-          damages base model -7pp (dominant cause). Plan C inference fix adds
-          +2pp but incomplete (client reset missing). Plan C code changes PASS.
-          RES PAUSE recommendation endorsed. Training-level fix needed.
-      - round: 4
-        date: "2026-04-16T14:00:00+08:00"
-        verdict: INCONCLUSIVE_PENDING_VERIFICATION
-        type: arbitration
-        request_from: CP-RES (self-negation)
-        note: >
-          Independent arbitration on -7pp training damage root cause.
-          KEY FINDING: CF loss is fully detached from VLM — zero gradient path.
-          -7pp is primarily RNG divergence (CF forward consumes extra random
-          numbers shifting flow-matching noise) + minor gradient clipping
-          interaction. z-test p=0.141, NOT statistically significant at α=0.05.
-          200 episodes insufficient (need ~720 for power=0.80). Prior RES
-          H4-primary conclusion falsified by Plan A. Recommended: RNG-aligned
-          retraining + multi-seed eval to distinguish real effect from noise.
-    passed_items:
-      - "CP-AH-1 PASS: loss/region=0 in 38/100 steps, P0 gate active"
-      - "CP-AH-1-ext PASS (diagnostic): corrective_flow_region 0.077→0.037 (↓52%), RES scheme-B verified"
-      - "CP-AH-2 PASS: all 12 loss components finite 500 steps, no NaN/Inf"
-      - "CP-AH-3 PASS: loss/consist 9.3e-5→5e-6 (↓95%), last 5 steps all 0.0"
-      - "CP-AH-4 correctly BLOCKED_WAIT_REMOTE (not claimed as PASS)"
-      - "corrective_flow_head.py: forward() return tuple[Tensor,Tensor,dict] verified"
-      - "corrective_flow_head.py: loss = base_loss + region_loss_weight * region_loss verified"
-      - "corrective_flow_head.py: predict() = a_base + sigmoid(region)*velocity verified"
-      - "corrective_flow_head.py: debug dict keys corrective_flow_base_loss/region_loss present"
-      - "QwenPI.py: conditional init of CorrectiveFlowHead verified"
-      - "QwenPI.py: forward() corrective_flow_loss computed after optional_hook_outputs verified"
-      - "QwenPI.py: debug dict merged into output_dict verified"
-      - "QwenPI.py: predict_action() isinstance(ami, nn.Module) check for bf16 fix verified"
-      - "train_starvla.py: hook_specs corrective_flow entry verified"
-      - "train_starvla.py: decomposed_metric_specs both corrective_flow_base/region entries verified"
-      - "Frozen: a_module_interface.py not modified (git diff empty)"
-      - "Frozen: optional_loss_utils.py not modified (git diff empty)"
-      - "Frozen: LayerwiseFM_ActionHeader.py import-only verified"
-      - "Frozen: cross_attention_dit.py import-only verified"
-    round3_findings:
-      - "F-R3-CRIT-1: CF training damages base model -7pp (Plan A confirmed)"
-      - "F-R3-HIGH-1: Plan C eval incomplete — client reset missing, _cf_prev_chunk leaks"
-      - "F-R3-LOW-1: train/infer region_gate asymmetry (acceptable under RES scheme-B)"
-      - "F-R3-INFO-1: predict() param name a_base should be a_prev"
-    blocking_items:
-      - "B-1 [RESOLVED]: predict_action() dtype restore (Round 2)"
-      - "B-2 [RESOLVED]: reference config mode (Round 2)"
-      - "B-3 [CRITICAL]: CF training damages base model -7pp — needs training-level fix"
-      - "B-4 [HIGH]: Plan C eval incomplete — client episode reset not implemented"
+    status: PENDING
+    note: >
+      等待 CP-BUILD fusion mode 交付后审核。需审核：
+      (1) ENG-1~4 工程修复质量
+      (2) CP-AH-4-v1 多 seed 评估结果
+      (3) CP-AH-5 RNG 对齐验证
+    previous_verdict: FAIL_AH4
+    previous_reviewed_at: "2026-04-16T14:00:00+08:00"
+    previous_note: >
+      上轮 Round 4 仲裁：-7pp 主要 RNG divergence，p=0.141 不显著，
+      200 episodes 统计功效不足。本轮需 multi-seed eval 确认。
     baseline_anchor:
       vlm: qwen25_authoritative
       acceptance_rule: evidence_only
@@ -245,33 +168,36 @@ threads:
       - artifact checklist
       - pass/fail verdict
     blocking_conditions:
-      - "CP-AH-4 INCONCLUSIVE: -7pp not statistically significant (p=0.141), need RNG-aligned retraining + multi-seed eval"
-      - "Plan C eval incomplete: client reset missing"
-    handoff_to:
-      - CP-RES
-      - CP-BUILD
+      - "等待 CP-BUILD fusion mode 交付"
 
   - thread_id: CP-RES-AH4-ANALYSIS
     role: RES
     current_gate: cp_ah4_failure_root_cause
     owner: OC
-    status: SUSPENDED
+    status: RESOLVED_BY_UPSTREAM_UPGRADE
     request: docs/algorithm1/handoff/cp_res_ah4_failure_analysis_request.md
     note: >
-      CP-AH-4 FAIL. CF 62.0% vs Baseline 69.0% (-7pp, threshold -2pp).
-      根因分析已完成部分（H1-H5 假设、Gap 1-5 分析、Round 4 仲裁）。
-      经全面审视，核心问题定位到上游：A-module 使用 lite 模式（MLP heads）
-      而非预期的 VDPM in-loop inference，trigger/region 信号质量不足。
-      CP 全线程挂起，等待 A-module 升级。
-    blocking_conditions:
-      - "A-module 需升级至 VDPM in-loop inference"
+      CP-AH-4 FAIL (lite mode, 62% vs 69%) 根因定位为上游 A-module 信号质量不足。
+      A-module 已升级至 fusion 模式 (VDPM in-loop)。T-B4 fusion AH-4 PASS。
+      此分析线程关闭。CP 恢复后需用 fusion A 输出重跑 CP-AH-4。
+    resolved_at: "2026-04-17T00:00:00+08:00"
+    resolution: "A-module upgraded to fusion mode; upstream signal quality issue addressed"
+    blocking_conditions: []
     handoff_to:
       - CP-BUILD
 
 downstream_rule:
   cp_build_start_condition: >
-    BLOCKED. A-module 当前使用 lite 模式（MLP heads），未达到 VDPM in-loop
-    inference 的预期。CP 全线程挂起，等待 A-module 升级后恢复。
+    UNBLOCKED. CP-RES RFC v1.1 (RTC+fusion) 已交付。CP-BUILD 可基于 RFC v1.1 启动。
+    需先完成 ARCH-1/2 架构修订和 ENG-1/3/4 工程修复，再进行 fusion mode 多 seed 训练和评估。
   resume_condition: >
-    A-module 完成 VDPM in-loop inference 实现，并通过 A-REVIEW 验证
-    trigger/region 信号质量达到 corrective policy 可用标准。
+    已满足 (2026-04-17)。A-module 完成 VDPM in-loop inference 实现，
+    T-B4 fusion AH-4 500step PASS，A-REVIEW Round 5 验收通过。
+    CP-RES RFC v1 已交付。
+  resume_plan:
+    - "CP-BUILD: 解决 ENG-1~4 (信号来源统一、推理适配、RNG 对齐、episode reset)"
+    - "CP-BUILD: 决策 BD-6 (信号来源) 和 BD-7 (CF 架构修订)"
+    - "CP-BUILD: 用 fusion mode 重新训练 corrective flow (多 seed)"
+    - "CP-BUILD: 执行 CP-AH-4-v1 多 seed LIBERO eval"
+    - "CP-BUILD: 执行 CP-AH-5 RNG 对齐验证"
+    - "CP-REVIEW: 审核全链路证据"

@@ -1,9 +1,14 @@
 """
-CorrectiveFlowHead — one-step corrective flow for StarVLA.
+CorrectiveFlowHead — one-step corrective flow for StarVLA (RTC paradigm v1.1).
 
 Takes the base-policy action chunk as a near-correct starting point and
 predicts a velocity field via a small DiT to refine it in a single ODE step.
-Region logits from the A-module gate which steps receive correction.
+
+RTC (Region-weighted Training-time Conditioning):
+  - Training: region_logits from the A-module fusion head weight the loss gradient,
+    but are NOT input features to the CF model.
+  - Inference: CF only needs a_prev — no trigger gating, no region gating,
+    no A-module / VDPM dependency.
 """
 
 import logging
@@ -38,14 +43,16 @@ class MetadataEncoder(nn.Module):
 
 class CorrectiveFlowHead(nn.Module):
     """
-    One-step corrective flow head.
+    One-step corrective flow head (RTC paradigm v1.1).
 
     Architecture
     ------------
-    ActionEncoder  → encode (a_prev, timestep) into hidden features
-    MetadataEncoder→ encode (trigger_prob ‖ region_logits) into a conditioning token
-    DiT (small)    → cross-attend to VLM features, self-attend over action+meta tokens
-    ActionDecoder  → project back to action_dim velocity
+    ActionEncoder → encode (a_prev, timestep) into hidden features
+    DiT (small)   → self-attend over action tokens (cross-attn optional via config)
+    ActionDecoder → project back to action_dim velocity
+
+    RTC: MetadataEncoder is retained for weight-compat but NOT called in forward path.
+    region_logits only affect the loss gradient, never the model input.
     """
 
     def __init__(
@@ -68,9 +75,13 @@ class CorrectiveFlowHead(nn.Module):
         self.action_encoder = ActionEncoder(
             action_dim=action_dim, hidden_size=hidden_dim
         )
+        # Retained for checkpoint backward-compat; not called in RTC forward path.
         self.metadata_encoder = MetadataEncoder(
             input_dim=1 + chunk_len, hidden_dim=hidden_dim
         )
+
+        # BD-7: vl_hidden_dim=0 → cross_attention_dim=None (self-attn only, recommended)
+        effective_cross_attn_dim = vl_hidden_dim if vl_hidden_dim > 0 else None
 
         attention_head_dim = 64
         self.dit = DiT(
@@ -91,7 +102,7 @@ class CorrectiveFlowHead(nn.Module):
             final_dropout=True,
             positional_embeddings=None,
             interleave_self_attention=False,
-            cross_attention_dim=vl_hidden_dim,
+            cross_attention_dim=effective_cross_attn_dim,
         )
 
         self.action_decoder = MLP(
@@ -102,12 +113,13 @@ class CorrectiveFlowHead(nn.Module):
         self._t_discretized = int(self._t_fixed * 1000)
 
         logger.info(
-            "CorrectiveFlowHead: action_dim=%d chunk_len=%d hidden=%d "
-            "vl_hidden=%d layers=%d heads=%d region_loss_w=%.2f params=%d",
+            "CorrectiveFlowHead(RTC): action_dim=%d chunk_len=%d hidden=%d "
+            "vl_hidden=%d(cross_attn=%s) layers=%d heads=%d region_loss_w=%.2f params=%d",
             action_dim,
             chunk_len,
             hidden_dim,
             vl_hidden_dim,
+            effective_cross_attn_dim is not None,
             num_layers,
             num_heads,
             region_loss_weight,
@@ -116,12 +128,10 @@ class CorrectiveFlowHead(nn.Module):
 
     def _encode_and_attend(
         self,
-        vl_embs: torch.Tensor,
         a_input: torch.Tensor,
-        trigger_prob: torch.Tensor,
-        region_logits: torch.Tensor,
+        vl_embs: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Shared encode → DiT → decode pipeline for forward / predict."""
+        """Shared encode → DiT → decode pipeline (RTC: no metadata token)."""
         B = a_input.shape[0]
         device = a_input.device
 
@@ -131,10 +141,8 @@ class CorrectiveFlowHead(nn.Module):
 
         action_features = self.action_encoder(a_input, timesteps)  # [B, C, hidden]
 
-        meta_input = torch.cat([trigger_prob, region_logits], dim=-1)  # [B, 1+C]
-        meta_features = self.metadata_encoder(meta_input).unsqueeze(1)  # [B, 1, hidden]
-
-        sa_embs = torch.cat([meta_features, action_features], dim=1)  # [B, 1+C, hidden]
+        # RTC: no MetadataEncoder — all tokens are action tokens
+        sa_embs = action_features  # [B, C, hidden]
 
         temb = self.dit.timestep_encoder(timesteps)
 
@@ -142,7 +150,7 @@ class CorrectiveFlowHead(nn.Module):
         for block in self.dit.transformer_blocks:
             hidden_states = block(
                 hidden_states=hidden_states,
-                encoder_hidden_states=vl_embs,
+                encoder_hidden_states=vl_embs,  # None when BD-7=self-attn only
                 temb=temb,
             )
 
@@ -152,36 +160,31 @@ class CorrectiveFlowHead(nn.Module):
         )
         hidden_states = self.dit.proj_out_2(hidden_states)
 
-        action_hidden = hidden_states[:, 1:, :]  # drop metadata token
-        pred_velocity = self.action_decoder(action_hidden)  # [B, C, action_dim]
+        pred_velocity = self.action_decoder(hidden_states)  # [B, C, action_dim]
         return pred_velocity
 
     def forward(
         self,
-        vl_embs: torch.Tensor,
         a_prev: torch.Tensor,
         a_gt: torch.Tensor,
-        trigger_prob: torch.Tensor,
         region_logits: torch.Tensor,
+        vl_embs: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, dict]:
         """
-        Training forward.
+        Training forward (RTC paradigm).
 
         Args:
-            vl_embs:       [B, S, vl_hidden_dim] VLM features (detached)
-            a_prev:        [B, C, action_dim]     previous chunk (GT + noise)
-            a_gt:          [B, C, action_dim]     current chunk GT
-            trigger_prob:  [B, 1]                 sigmoid(trigger_logit) (detached)
-            region_logits: [B, C]                 region head output (detached)
+            a_prev:        [B, C, action_dim]  previous chunk (GT + noise)
+            a_gt:          [B, C, action_dim]  current chunk GT
+            region_logits: [B, C]             from fusion head (detached), loss weighting only
+            vl_embs:       [B, S, vl_hidden_dim] optional VLM features (None if BD-7=no cross-attn)
 
         Returns:
             (loss, pred_velocity, debug_dict)
         """
         velocity_gt = a_gt - a_prev
 
-        pred_velocity = self._encode_and_attend(
-            vl_embs, a_prev, trigger_prob, region_logits
-        )
+        pred_velocity = self._encode_and_attend(a_prev, vl_embs)
 
         region_weight = torch.sigmoid(region_logits).unsqueeze(-1)  # [B, C, 1]
         per_step_loss = (pred_velocity - velocity_gt) ** 2
@@ -198,28 +201,22 @@ class CorrectiveFlowHead(nn.Module):
     @torch.no_grad()
     def predict(
         self,
-        vl_embs: torch.Tensor,
-        a_base: torch.Tensor,
-        trigger_prob: torch.Tensor,
-        region_logits: torch.Tensor,
+        a_prev: torch.Tensor,
+        vl_embs: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
-        Inference: one-step corrective flow.
+        Inference: one-step corrective flow (RTC paradigm).
+
+        No trigger gating, no region gating. The model has learned via
+        region-weighted loss to self-determine correction magnitude.
 
         Args:
-            vl_embs:       [B, S, vl_hidden_dim]
-            a_base:        [B, C, action_dim]  base-policy output
-            trigger_prob:  [B, 1]
-            region_logits: [B, C]
+            a_prev:  [B, C, action_dim]  previous base-policy prediction
+            vl_embs: [B, S, vl_hidden_dim] optional VLM features
 
         Returns:
-            a_corrected:   [B, C, action_dim]
+            a_corrected: [B, C, action_dim]
         """
-        pred_velocity = self._encode_and_attend(
-            vl_embs, a_base, trigger_prob, region_logits
-        )
-        region_gate = torch.clamp(
-            torch.sigmoid(region_logits) - 0.3, min=0.0
-        ).unsqueeze(-1)  # [B, C, 1]; zero below sigmoid=0.3
-        a_corrected = a_base + region_gate * pred_velocity
+        pred_velocity = self._encode_and_attend(a_prev, vl_embs)
+        a_corrected = a_prev + pred_velocity
         return a_corrected

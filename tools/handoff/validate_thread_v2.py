@@ -30,11 +30,17 @@ VALID_STATUSES = {
     "draft",
     "ready",
     "READY",
+    "PENDING",
     "IN_PROGRESS",
     "DONE",
+    "DONE_PENDING_REVIEW",
+    "PASS",
+    "BLOCKED",
     "BLOCKED_WAIT_UPSTREAM",
     "BLOCKED_WAIT_REMOTE",
+    "ACTIVE",
     "CANCELLED",
+    "RESOLVED_BY_UPSTREAM_UPGRADE",
 }
 
 THREAD_TO_MODULE = {
@@ -287,7 +293,7 @@ def validate_cp_build_gate(manifest: dict, thread_entry: dict | None, result: Va
     if thread_entry:
         thread_status = str(thread_entry.get("status", "")).strip()
 
-    if current_verdict in ("yes", "conditional"):
+    if current_verdict in ("yes", "conditional", "usable", "usable_for_downstream"):
         result.ok(f"CP upstream_gate.current_verdict = {current_verdict}; CP-BUILD may proceed")
     elif thread_status == "BLOCKED_WAIT_UPSTREAM":
         result.ok("CP-BUILD is correctly BLOCKED_WAIT_UPSTREAM (upstream verdict not yet issued)")

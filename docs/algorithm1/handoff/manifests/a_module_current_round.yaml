@@ -271,14 +271,22 @@ threads:
 
 downstream_rule:
   cp_build_start_condition: >
-    CP-BUILD must stay blocked until A-REVIEW explicitly states whether the
-    current A-output contract is usable as corrective-policy input.
+    UNBLOCKED. A-REVIEW Round 5 (2026-04-16T23:50:00+08:00) confirms fusion mode
+    ACCEPTED, A-output USABLE_FOR_DOWNSTREAM. CP threads may resume.
   vdpm_merge_status: >
     VDPM/FASA branch merged into mainline (000ef49). A-module supports
     mode=fusion (VDPM in-loop + CrossAttentionFusionAHead). T-B1~T-B5 ALL DONE.
     T-B4 fusion AH-4 500step PASS: a_loss -46.4%, all losses finite, VDPM 0 failures.
     A-REVIEW Round 5 PASS: fusion mode ACCEPTED, A-output USABLE.
-    CP 解阻条件已满足, 建议 CP manifest → READY_TO_RESUME.
+  cp_unblock_decision:
+    decided_at: "2026-04-17T00:00:00+08:00"
+    decided_by: A-RES (post-fusion review) + A-REVIEW Round 5
+    conditions_met:
+      - "VDPM in-loop inference implemented (FusionAModuleInterface + CrossAttentionFusionAHead)"
+      - "A-REVIEW Round 5 PASS: fusion mode ACCEPTED, A-output USABLE"
+      - "T-B4 fusion AH-4 500step PASS (all losses finite, VDPM 0 failures)"
+      - "Seven-field output contract preserved under fusion mode"
+    cp_manifest_target_status: READY_TO_RESUME
   tb4_evidence:
     run_id: tb4_fusion_ah4_500step_20260416_113826
     remote_path: /2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/results/Checkpoints/tb4_fusion_ah4_500step_20260416_113826

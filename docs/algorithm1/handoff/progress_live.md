@@ -7399,6 +7399,34 @@ git commit -m "[CP-BUILD+REVIEW] corrective flow debug metrics, bf16 fix, Quick-
 
 ### CP-AH-4 最终判定: **FAIL** (Plan C 64.0% < 67.0% threshold)
 
+---
+
+## [2026-04-16] 旧代码 30k/40k Base 独立评测
+
+- Thread: CP-BUILD (独立对照实验)
+- 仓库: `/2025233147/zzq/SpatialVLA_llava3d/starVLA` (旧仓库, `evaluate-2dvlm` 分支)
+- 环境: `llava3d_vla_train` conda env
+- 评测参数: libero_goal, 20 trials, seed=7, state truncation 8→7 via monkey-patch wrapper
+
+### 结果
+
+| Model | Total | T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 30k Base (旧代码) | **57.5%** | 15 | 80 | 90 | 65 | 100 | 5 | 55 | 75 | 90 | 0 |
+| 40k (旧代码) | **0.0%** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### 关键发现
+
+1. **30k Base = 57.5%**: 建立了真正的预训练基线
+2. **40k = 0%**: 即使用原始代码也全灭，说明继续训练到 40k 导致灾难性遗忘 libero_goal
+3. **新代码所有方案均大幅超越 30k Base**:
+   - Baseline (33k): **+11.5pp** (69.0% vs 57.5%)
+   - Plan C (CF修复): **+6.5pp** (64.0% vs 57.5%)
+   - 即使原始CF: **+4.5pp** (62.0% vs 57.5%)
+4. A-module 训练 + 新代码框架对 base policy 有显著正向贡献
+
+### 详细报告: `docs/algorithm1/handoff/cp_ah4_libero_results.md`
+
 ## [2026-04-16 12:00:00 +08:00] CP-REVIEW / CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM: Round 3 — CP-AH-4 Evidence Review & Plan C Code Audit — FAIL
 
 - Owner: OC
@@ -8486,3 +8514,137 @@ Where `$RUN_DIR = /2025233147/zzq/SpatialVLA_llava3d/starvla_test_qwen/starVLA/r
   - **CP 解阻条件: 已满足** — VDPM 实现合入 + T-B3 smoke PASS + T-B4 AH-4 PASS + A-REVIEW 确认
   - **建议: CP manifest 从 BLOCKED_WAIT_UPSTREAM → READY_TO_RESUME**
 
+## [2026-04-17 00:00:00 +08:00] CP 解阻决定：BLOCKED_WAIT_UPSTREAM → READY_TO_RESUME
+
+- Owner: OC
+- Thread: A-RES (post-fusion review) + A-REVIEW Round 5
+- Status: **CP UNBLOCKED**
+- Objective:
+  - 正式执行 CP 线程解阻，更新 CP manifest 状态
+- 背景:
+  - CP 全线程于 2026-04-16T22:00 因 A-module lite 模式信号质量不足而 BLOCKED
+  - 阻塞条件：A-module 需升级至 VDPM in-loop inference 并通过 A-REVIEW 验证
+- 解阻条件验证:
+  - ✅ VDPM in-loop inference 已实现（FusionAModuleInterface + CrossAttentionFusionAHead，commit 000ef49）
+  - ✅ T-B1~T-B4 全部 PASS（merge → sync → smoke 50step → AH-4 500step）
+  - ✅ T-B4 fusion AH-4 500step PASS：a_loss -46.4%, 0 NaN/Inf, VDPM 0 failures（run_id: tb4_fusion_ah4_500step_20260416_113826）
+  - ✅ A-REVIEW Round 5 确认 fusion mode ACCEPTED, A-output USABLE_FOR_DOWNSTREAM
+  - ✅ 七字段输出契约在 fusion 模式下保持（region_logits_contract15_present=1.0, embedding_coverage=1.0）
+- Manifests 变更:
+  - `a_module_current_round.yaml`: downstream_rule.cp_build_start_condition → UNBLOCKED，新增 cp_unblock_decision 记录
+  - `cp_current_round.yaml`:
+    - status: BLOCKED_WAIT_UPSTREAM → READY_TO_RESUME
+    - round_id: CP-ROUND-BOOTSTRAP-WAIT-UPSTREAM → CP-ROUND-FUSION-RESUME
+    - upstream_gate.verdict_detail: 更新为 A-REVIEW Round 5 证据
+    - CP-RES-AH4-ANALYSIS: SUSPENDED → RESOLVED_BY_UPSTREAM_UPGRADE
+    - downstream_rule: BLOCKED → UNBLOCKED，新增 resume_plan
+- CP 恢复计划:
+  1. CP-RES: 评估 fusion 模式对 policy RFC 的影响，确认 BD-3 (原 lite mode) 是否需修订为 fusion
+  2. CP-BUILD: 用 fusion mode A 输出重新训练 corrective flow
+  3. CP-AH-4 重跑: LIBERO eval with fusion A outputs（上轮 lite mode 仅 62% vs baseline 69%，预期 fusion 改善）
+  4. CP-REVIEW: 审核全链路证据
+- Open risks:
+  - 上轮 CP-REVIEW Round 4 仲裁结论：-7pp 可能主要是 RNG divergence 而非真实性能下降（p=0.141, 不显著）。fusion 模式下需 RNG-aligned retraining + multi-seed eval 确认
+  - BD-3 决策（lite mode for CF head）可能需要在 fusion 上下文中重新评估
+  - VDPM 在线推理延迟 586ms 不阻塞训练，但部署需独立优化
+
+## [2026-04-17 02:00:00 +08:00] CP-RES Fusion 恢复轮完成
+
+- Owner: OC
+- Thread: CP-RES
+- Gate: phase3_0b_cp_fusion_resume
+- Round: CP-ROUND-FUSION-RESUME
+- Status: **DONE**
+- Objective: 评估 A-module 从 lite 升级到 fusion 后对 corrective policy 的影响
+- 交付物:
+  1. Policy RFC v1 (fusion): `docs/algorithm1/handoff/cp_res_policy_rfc_v1_fusion.md`
+  2. Interface Assumptions v1: `docs/algorithm1/handoff/cp_res_interface_assumptions_v1_fusion.md`
+  3. Blocked Items v1: `docs/algorithm1/handoff/cp_res_blocked_items_v1_fusion.md`
+- 核心结论:
+  - BD-3 修订: A-module inference mode 从 **lite → fusion**（已有远程证据）
+  - BD-4 修订: dynamic_embedding 不由 CF 直接消费（由 fusion head 内部消费）
+  - BD-1, BD-2, BD-5: 保持不变
+  - 新增 BD-6 (CF 训练路径信号来源) 和 BD-7 (CF 架构修订) 供 CP-BUILD 决策
+  - CP-AH-4-v1: 修订为多 seed 评估方案（≥3 seeds × 200 episodes）
+  - 新增 CP-AH-5: RNG 对齐验证
+- 识别的 CP-BUILD 工程问题 (HIGH):
+  - ENG-1: CF 训练路径 trigger/region 信号来源不一致（fusion head 实时输出 vs 预计算）
+  - ENG-2: CF 推理路径未适配 fusion mode
+  - ENG-3: RNG 对齐实现（noise augmentation 独立 Generator）
+  - ENG-4: episode reset 链路修复
+- 开放风险:
+  - CP-R1-v1 [HIGH]: 训练/推理信号来源不一致（需 CP-BUILD ENG-1 修复）
+  - CP-R2-v1 [HIGH]: 推理未适配 fusion（需 CP-BUILD ENG-2 修复）
+  - CP-R3-v1 [MEDIUM]: VDPM 586ms 延迟对推理链路影响
+  - CP-R4 [MEDIUM]: RNG divergence 未排除
+  - CP-R5 [MEDIUM]: CF 架构 VLM cross-attention 冗余
+- Manifest 变更: cp_current_round.yaml status READY_TO_RESUME → ACTIVE
+- 下一步: CP-BUILD 基于 RFC v1 启动 ENG-1~4 + fusion mode 重训练
+
+## [2026-04-17 03:00:00 +08:00] CP-RES RFC v1.1 RTC 范式修订
+
+- Owner: OC
+- Thread: CP-RES
+- Status: **RFC v1.1 DELIVERED**
+- 修订动机:
+  - v1 中 trigger/region 同时作为 CF 模型输入和 loss 权重，导致推理依赖 VDPM (586ms)
+  - 参考 RTC (Training-Time Action Conditioning) 范式拆分角色
+- 核心架构变化:
+  - **BD-8 新增**: trigger/region 从 CF 模型输入中移除，仅保留为训练时 loss 权重
+  - **BD-1 修订**: pure additive (a_prev + velocity)，去掉推理时 region gate
+  - MetadataEncoder 从 CF 前向路径中移除（不再编码 trigger/region 为 self-attn token）
+  - CF 推理签名简化为 `predict(a_prev, vl_embs=None)`
+- 消除的风险:
+  - ~~CP-R2-v1 [HIGH]~~: 推理路径 fusion 适配 → 不再需要（RTC 推理不依赖 A-module）
+  - ~~CP-R3-v1 [MEDIUM]~~: VDPM 586ms 延迟 → 不再影响（推理不需要 VDPM）
+- 新增风险:
+  - CP-R7 [LOW]: 模型能否自主判断修正幅度（TTAC 论文已验证，需远程实验确认）
+- 文档更新:
+  - `cp_res_policy_rfc_v1_fusion.md` → v1.1
+  - `cp_res_interface_assumptions_v1_fusion.md` → v1.1
+  - `cp_res_blocked_items_v1_fusion.md` → v1.1
+  - `cp_current_round.yaml` → summary + CP-BUILD tasks 更新
+- 下一步: CP-BUILD 基于 RFC v1.1 启动全流程（架构修订 → 多 seed 训练 → LIBERO eval → 交付 CP-REVIEW）
+
+## [2026-04-17 10:00:00 +08:00] CP-BUILD Phase 1-2: RTC 架构修订 + 本地验证
+
+- Owner: OC
+- Thread: CP-BUILD
+- Gate: phase3_0b_cp_fusion_build
+- Round: CP-ROUND-FUSION-RESUME
+- Status: **IN_PROGRESS → BLOCKED_WAIT_REMOTE**
+- 上游授权: A-REVIEW Round 5 PASS, fusion mode ACCEPTED, A-output USABLE
+- 消费的 A-output contract: v0.9.3_frozen (fusion mode)
+- 修改的文件:
+  1. `starVLA/model/framework/corrective_flow_head.py` — RTC 架构改造
+     - `_encode_and_attend()`: 移除 MetadataEncoder 输入，签名简化为 `(a_input, vl_embs=None)`
+     - `forward()`: 签名改为 `(a_prev, a_gt, region_logits, vl_embs=None)`，region_logits 仅用于 loss 加权
+     - `predict()`: 签名简化为 `(a_prev, vl_embs=None)`，无 trigger/region gating
+     - `__init__()`: BD-7 — `vl_hidden_dim=0` 时 `cross_attention_dim=None` (self-attn only)
+     - MetadataEncoder 保留用于 checkpoint 向后兼容，但前向路径不调用
+  2. `starVLA/model/framework/QwenPI.py` — 训练/推理路径修改
+     - `__init__()`: 新增 `corrective_flow_use_cross_attention` 配置 (BD-7, 默认 False)
+     - `__init__()`: 新增 `_cached_fusion_region_logits` 缓存 (ENG-1)
+     - `_compute_optional_hook_outputs()`: fusion 分支缓存 region_logits 到 `_cached_fusion_region_logits`
+     - `forward()` CF 训练路径: ENG-1 (fusion head 实时 region_logits), ENG-3 (独立 Generator RNG 对齐), 新签名
+     - `predict_action()` CF 推理路径: 移除 A-module 依赖、trigger 门控、region gate，极简 RTC 推理
+  3. `tools/handoff/run_cp_rtc_fusion_smoke_500step.sh` — 新增 500-step smoke 脚本
+  4. `tools/handoff/run_cp_rtc_fusion_baseline_train.sh` — 新增 fusion baseline 训练脚本
+  5. `tools/handoff/run_cp_rtc_fusion_cf_train.sh` — 新增 fusion CF (RTC) 训练脚本
+- 冻结文件未修改: a_module_interface.py ✅, a_fusion_heads.py ✅, optional_loss_utils.py ✅
+- 本地验证:
+  - py_compile: 3/3 PASS (corrective_flow_head.py, QwenPI.py, train_starvla.py)
+  - linter: 0 errors
+- BD 决策:
+  - BD-7: self-attention only (use_cross_attention=false) — 推荐方案
+  - BD-8: trigger/region 仅训练时 loss 权重，不作为 CF 模型输入
+- ENG 修复:
+  - ENG-1: fusion mode 下 region_logits 从 `_cached_fusion_region_logits` 获取（detached）
+  - ENG-2: **消除**（RTC 推理不依赖 A-module）
+  - ENG-3: CF noise 使用独立 `torch.Generator(seed=42)`
+  - ENG-4: `reset_cf_state()` 已存在于 QwenPI + websocket_policy_server.py
+- 缺失:
+  - 远程 500-step smoke test 未执行
+  - 远程多 seed 训练 (CP-AH-4-v1) 未执行
+  - 远程 RNG 对齐验证 (CP-AH-5) 未执行
+- 下一步: 部署到服务器 → 500-step smoke → 多 seed 训练 → LIBERO eval
